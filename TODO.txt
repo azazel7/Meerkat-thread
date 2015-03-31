@@ -1,0 +1,9 @@
+On monocore version we can add :
+- Signal system
+	so a thread will be able to send a signal to another one.
+	like thread_kill(thread_t);
+- Detect a stackoverflow with mprotect
+- Add mutex between thread
+
+On multi-core version :
+Make th version work (Martin is on it, the source code is upside down and he's facing a lot of deadlocks and segfault)

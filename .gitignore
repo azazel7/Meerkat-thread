@@ -4,3 +4,5 @@ Makefile
 CMakeCache.txt
 CMakeFiles
 build
+tags
+.*.swp

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include "meerkat.h"
 
+#define SIZE 5
+
 static void* func(int *nbb)
 {
 	int nb = *nbb;
@@ -14,7 +16,7 @@ static void* func(int *nbb)
 		/*sleep(1);*/
 		++i;
 	}
-	printf("func%d: returning\n", nb);
+	printf("func%d: returning (%p)\n", nb, nbb);
 	*nbb *= 3;
 	return (void*)nbb;
 }
@@ -22,20 +24,22 @@ static void* func(int *nbb)
 int main(int argc, char *argv[])
 {
 	int i = 0, *nb;
-	thread_t thre[5];
-	for(i = 0; i < 5; i++)
+	thread_t thre[SIZE];
+	for(i = 0; i < SIZE; i++)
 	{
 		nb = (int *)malloc(sizeof(int));
 		*nb = i;
 		if(thread_create(&thre[i], (void* (*)(void*))func, nb) < 0)
 			break;
+		thread_yield();
 	}
 	 /*nb = (int*)malloc(sizeof(int));*/
 	/**nb = i++;*/
 	 /*func(nb);*/
 	int* value;
-	for(i = 0; i < 5; ++i)
+	for(i = 0; i < SIZE; ++i)
 	{
+		printf("Joining %d(%d)\n", thre[i], i);
 		thread_join(thre[i], (void**)&value);
 		printf("Result for %d : %d\n", i, *value);
 		free(value);

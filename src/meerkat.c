@@ -115,7 +115,7 @@ int thread_init(void)
 		ending_thread.id = global_id++;
 		//créer le contexte pour le contexte de netoyage
 		makecontext(&ending_thread.ctx, thread_end_thread, 1, NULL);
-		//TODO find another way to create the thread from current "threrad"
+		//TODO find another way to create the thread from current "thread"
 		//créer contex avec getcontext pour le thread courant
 		++thread_count;
 		current_thread = (thread_u *)malloc(sizeof(thread_u));
@@ -319,7 +319,7 @@ thread_t thread_self(void)
 	//Why 2 ? If there is no thread
 	//The created thread will be 0
 	//The ending thread 1
-	//And the current 2 
+	//And the current 2
 }
 
 void thread_exit(void *retval)

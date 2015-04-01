@@ -314,6 +314,7 @@ void thread_schedul()
 		CURRENT_CORE.switch_after_getcontext = true;
 		//The current thread is joining another one, no need to put it in the runqueu
 		getcontext(&(previous->ctx));
+		id_core = get_idx_core();
 		if(CURRENT_CORE.switch_after_getcontext == false)
 		{
 			//We comming back from getcontext

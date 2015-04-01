@@ -288,6 +288,7 @@ void thread_schedul()
 	int id_core = get_idx_core();
 	//previous can be NULL when each pthread thread call thread_schedul for the first time 
 	thread_u *previous = CURRENT_THREAD;
+	CURRENT_THREAD = NULL;
 	//If the current thread is not finish, we push him back into the runqueu
 	if(previous != NULL && previous->to_clean)
 	{
@@ -401,8 +402,10 @@ int thread_join(thread_t thread, void** retval)
 	//Check if the thread exist in the runqueu
 	//TODO also check among joining thread
 	//Put also join_table_mutex because if put_back_joining_thread_of is called after we've checked, , it will destroy the list
+	printf("Join %d from %d (a) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	pthread_mutex_lock(&join_table_mutex);
 	pthread_mutex_lock(&all_thread_mutex);
+	printf("Join %d from %d (b) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	list__for_each(all_thread, th)
 	{
 		if(th->id == thread)
@@ -418,6 +421,7 @@ int thread_join(thread_t thread, void** retval)
 	}
 	//XXX: Do move up the unlock, because other are less likely to change their current
 	pthread_mutex_unlock(&all_thread_mutex);
+	printf("Join %d from %d (c) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	//If the thread isn't in the runqueu it is probably ended
 	if(!found)
 	{
@@ -445,6 +449,7 @@ int thread_join(thread_t thread, void** retval)
 	list__add_front(join_on_thread, CURRENT_THREAD);
 	//Put information for the scheduler so he will know how to deal with it
 	CURRENT_THREAD->is_joining = true;
+	printf("Join %d from %d (d) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	pthread_mutex_unlock(&join_table_mutex);
 	//XXX what happen if join_on_thread is put back into all_thread right now ?
 	//switch of process
@@ -492,20 +497,28 @@ void thread_exit(void *retval)
 
 void put_back_joining_thread_of(thread_u* thread)
 {
+	int id_core = get_idx_core();
+	printf("Put back of %d (a) core %d\n", thread->id, id_core);
 	pthread_mutex_lock(&join_table_mutex);
+	pthread_mutex_lock(&all_thread_mutex);
+	printf("Put back of %d (b) core %d\n", thread->id, id_core);
 	//Get the join_list to know all the thread joining thread
 	List* join_on_thread = htable__find_int(join_table, thread->id);
 	if(join_on_thread == NULL)
 	{
+		printf("Put back of %d (b.2) core %d\n", thread->id, id_core);
+		pthread_mutex_unlock(&all_thread_mutex);
 		pthread_mutex_unlock(&join_table_mutex);
 		return;
 	}
 	//Remove the entry from join_table
+	printf("Put back of %d (c) core %d\n", thread->id, id_core);
 	htable__remove_int(join_table, thread->id);
+	printf("Put back of %d (d) core %d\n", thread->id, id_core);
 	pthread_mutex_unlock(&join_table_mutex);
 	//Put every joining thread back into the runqueu
-	pthread_mutex_lock(&all_thread_mutex);
 	list__append(all_thread, join_on_thread);
+	printf("Put back of %d (e)\n", thread->id);
 	int i;
 	for(i = 0; i < list__get_size(join_on_thread); ++i)
 		sem_post(semaphore_all_thread);

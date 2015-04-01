@@ -27,6 +27,8 @@ typedef struct thread_u
 	bool to_clean;
 	//Information for the scheduler
 	bool is_joining;
+	// To handle one signal
+	void* (*signals[10])(int) ;
 	catch_return cr;
 } thread_u;
 
@@ -364,4 +366,8 @@ void clear_finished_thread(void)
 int get_number_of_core(void)
 {
 	return sysconf(_SC_NPROCESSORS_ONLN);
+}
+
+void thread_signal(int signal_to_set, void* (*function) (int) ){
+	current_thread->signals[signal_to_set] = function;
 }

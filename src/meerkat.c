@@ -9,6 +9,7 @@
 #include <semaphore.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <valgrind/valgrind.h>
 #include "list.h"
 #include "htable.h"
 
@@ -35,6 +36,7 @@ typedef struct thread_u
 	bool to_clean;
 	//Information for the scheduler
 	bool is_joining;
+	int valgrind_stackid;
 	catch_return cr;
 } thread_u;
 typedef struct core_information
@@ -176,6 +178,7 @@ int thread_init(void)
 		current_thread->ctx.uc_link = &ending_thread.ctx;
 		current_thread->cr.function = NULL;
 		current_thread->cr.arg = NULL;
+		current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
 		//Initialise les thread pthread (vue comme des cœurs par la suite pour des notion de sémantique)
 		core[0].thread = pthread_self();
 		core[0].current = current_thread;
@@ -214,6 +217,7 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 	//Configure l'argument que l'on va donner à thread_catch_return qui exécutera start_routine
 	new_thread->cr.function = start_routine;
 	new_thread->cr.arg = arg;
+	new_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(new_thread->ctx.uc_stack.ss_sp, new_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
 	//créer le contexte
 	makecontext(&(new_thread->ctx), (void (*)())thread_catch_return, 1, &new_thread->cr);
 	if(thread_count == 0)
@@ -315,7 +319,6 @@ void thread_schedul()
 		CURRENT_CORE.switch_after_getcontext = true;
 		//The current thread is joining another one, no need to put it in the runqueu
 		getcontext(&(previous->ctx));
-		id_core = get_idx_core();
 		if(CURRENT_CORE.switch_after_getcontext == false)
 		{
 			//We comming back from getcontext
@@ -403,10 +406,8 @@ int thread_join(thread_t thread, void** retval)
 	//Check if the thread exist in the runqueu
 	//TODO also check among joining thread
 	//Put also join_table_mutex because if put_back_joining_thread_of is called after we've checked, , it will destroy the list
-	printf("Join %d from %d (a) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	pthread_mutex_lock(&join_table_mutex);
 	pthread_mutex_lock(&all_thread_mutex);
-	printf("Join %d from %d (b) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	list__for_each(all_thread, th)
 	{
 		if(th->id == thread)
@@ -422,7 +423,6 @@ int thread_join(thread_t thread, void** retval)
 	}
 	//XXX: Do move up the unlock, because other are less likely to change their current
 	pthread_mutex_unlock(&all_thread_mutex);
-	printf("Join %d from %d (c) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	//If the thread isn't in the runqueu it is probably ended
 	if(!found)
 	{
@@ -450,7 +450,6 @@ int thread_join(thread_t thread, void** retval)
 	list__add_front(join_on_thread, CURRENT_THREAD);
 	//Put information for the scheduler so he will know how to deal with it
 	CURRENT_THREAD->is_joining = true;
-	printf("Join %d from %d (d) core %d\n", thread, CURRENT_THREAD->id, id_core);
 	pthread_mutex_unlock(&join_table_mutex);
 	//XXX what happen if join_on_thread is put back into all_thread right now ?
 	//switch of process
@@ -499,23 +498,18 @@ void thread_exit(void *retval)
 void put_back_joining_thread_of(thread_u* thread)
 {
 	int id_core = get_idx_core();
-	printf("Put back of %d (a) core %d\n", thread->id, id_core);
 	pthread_mutex_lock(&join_table_mutex);
 	pthread_mutex_lock(&all_thread_mutex);
-	printf("Put back of %d (b) core %d\n", thread->id, id_core);
 	//Get the join_list to know all the thread joining thread
 	List* join_on_thread = htable__find_int(join_table, thread->id);
 	if(join_on_thread == NULL)
 	{
-		printf("Put back of %d (b.2) core %d\n", thread->id, id_core);
 		pthread_mutex_unlock(&all_thread_mutex);
 		pthread_mutex_unlock(&join_table_mutex);
 		return;
 	}
 	//Remove the entry from join_table
-	printf("Put back of %d (c) core %d\n", thread->id, id_core);
 	htable__remove_int(join_table, thread->id);
-	printf("Put back of %d (d) core %d\n", thread->id, id_core);
 	pthread_mutex_unlock(&join_table_mutex);
 	//Put every joining thread back into the runqueu
 	list__append(all_thread, join_on_thread);
@@ -537,12 +531,13 @@ void thread_catch_return(void * info)
 
 void clear_finished_thread(void)
 {
-	void* tmp = NULL;
+	thread_u* tmp = NULL;
 	//TODO optimiser avec des semaphores (trywait)
 	pthread_mutex_lock(&all_thread_to_free_mutex);
 	list__for_each(all_thread_to_free, tmp)
 	{
 		list__remove_on_for_each(all_thread_to_free);
+		VALGRIND_STACK_DEREGISTER(tmp->valgrind_stackid);
 		free(tmp);
 	}
 	pthread_mutex_unlock(&all_thread_to_free_mutex);

@@ -48,6 +48,8 @@ typedef struct core_information
 	ucontext_t ctx;
 	char stack[SIZE_STACK];
 	bool unlock_thread_to_free;
+	bool unlock_all_thread;
+	bool unlock_join_table;
 } core_information;
 
 typedef int thread_t;
@@ -320,7 +322,7 @@ void thread_schedul()
 		pthread_mutex_lock(&all_thread_mutex);
 		list__add_end(all_thread, previous);
 		sem_post(semaphore_all_thread);
-		pthread_mutex_unlock(&all_thread_mutex);
+		CURRENT_CORE.unlock_all_thread = true;
 	}
 	if(previous != NULL)
 		swapcontext(&(previous->ctx), &(CURRENT_CORE.ctx));
@@ -418,7 +420,7 @@ int thread_join(thread_t thread, void** retval)
 	//Put information for the scheduler so he will know how to deal with it
 	CURRENT_THREAD->is_joining = true;
 	fprintf(stderr, "%d join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
-	pthread_mutex_unlock(&join_table_mutex);
+	CURRENT_CORE.unlock_join_table = true;
 	//XXX what happen if join_on_thread is put back into all_thread right now ?
 	//switch of process
 	thread_schedul();
@@ -514,7 +516,7 @@ void clear_finished_thread(void)
 }
 int get_number_of_core(void)
 {
-	return 2; //sysconf(_SC_NPROCESSORS_ONLN);
+	return 3; //sysconf(_SC_NPROCESSORS_ONLN);
 }
 int get_idx_core(void)
 {
@@ -557,7 +559,14 @@ void thread_change(int id_core)
 	CURRENT_THREAD = NULL;
 	if(CURRENT_CORE.unlock_thread_to_free)
 		pthread_mutex_unlock(&all_thread_to_free_mutex);
+	if(CURRENT_CORE.unlock_all_thread)
+		pthread_mutex_unlock(&all_thread_mutex);
+	if(CURRENT_CORE.unlock_join_table)
+		pthread_mutex_unlock(&join_table_mutex);
+	
 	CURRENT_CORE.unlock_thread_to_free = false;
+	CURRENT_CORE.unlock_all_thread = false;
+	CURRENT_CORE.unlock_join_table = false;
 	//Get the next thread from the runqueu
 	UNIGNORE_SIGNAL(SIGALRM);
 	sem_wait(semaphore_all_thread);
@@ -575,7 +584,8 @@ void thread_init_i(int i, thread_u* current_thread)
 {
 	core[i].switch_after_getcontext = false;
 	core[i].unlock_thread_to_free = false;
-	
+	core[i].unlock_all_thread = false;	
+	core[i].unlock_join_table = false;
 	if(getcontext(&(core[i].ctx)) < 0)
 		exit(-1);
 	//Définie le contexte ctx (où est la pile)

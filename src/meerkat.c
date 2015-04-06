@@ -296,11 +296,14 @@ void thread_schedul()
 	bool current_thread_dead = false;
 	//previous can be NULL when each pthread thread call thread_schedul for the first time 
 	thread_u *previous = CURRENT_THREAD;
-	CURRENT_THREAD = NULL;
 	fprintf(stderr, "Pause %d on core %d\n", previous->id, id_core);
 	//If the current thread is not finish, we push him back into the runqueu
 	if(previous != NULL && previous->to_clean)
 	{
+		//So the current thread is no more active which mean less deadlock with the join
+		//The join will hopefully no see it
+		//XXX the return value is already in the return table
+		CURRENT_THREAD = NULL;
 		//Bring back in the runqueu threads that have joined the current_thread
 		put_back_joining_thread_of(previous);
 		//Do not free here, cause you will free the stack on which you are executed.
@@ -469,6 +472,7 @@ void put_back_joining_thread_of(thread_u* thread)
 	List* join_on_thread = htable__find_int(join_table, thread->id);
 	if(join_on_thread == NULL)
 	{
+		fprintf(stderr, "No joiner for %d on core %d\n", thread->id, get_idx_core());
 		pthread_mutex_unlock(&all_thread_mutex);
 		pthread_mutex_unlock(&join_table_mutex);
 		return;
@@ -478,7 +482,7 @@ void put_back_joining_thread_of(thread_u* thread)
 	pthread_mutex_unlock(&join_table_mutex);
 	//Put every joining thread back into the runqueu
 	list__append(all_thread, join_on_thread);
-	printf("Put back joiner of %d on core %d\n", thread->id, get_idx_core());
+	fprintf(stderr, "Put back joiner of %d on core %d\n", thread->id, get_idx_core());
 	int i;
 	for(i = 0; i < list__get_size(join_on_thread); ++i)
 		sem_post(semaphore_all_thread);
@@ -550,6 +554,7 @@ void print_core_info(void)
 }
 void thread_change(int id_core)
 {
+	CURRENT_THREAD = NULL;
 	if(CURRENT_CORE.unlock_thread_to_free)
 		pthread_mutex_unlock(&all_thread_to_free_mutex);
 	CURRENT_CORE.unlock_thread_to_free = false;

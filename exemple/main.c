@@ -46,7 +46,6 @@ int main(int argc, char *argv[])
 	}
 	fprintf(stdout, "Main ending\n");
 	thread_exit(NULL);
-	return 0;
 	/*
 	 * exit(EXIT_SUCCESS);
 	 */

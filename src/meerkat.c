@@ -44,12 +44,12 @@ typedef struct core_information
 {
 	pthread_t thread;
 	thread_u* current;
-	bool switch_after_getcontext;
 	ucontext_t ctx;
 	char stack[SIZE_STACK];
 	bool unlock_thread_to_free;
 	bool unlock_all_thread;
 	bool unlock_join_table;
+	int valgrind_stackid;
 } core_information;
 
 typedef int thread_t;
@@ -120,7 +120,9 @@ int get_idx_core(void);
 void empty_handler(int s);
 //Cette ne doit être appelé que par un unique core (pthread) à la fois
 void print_core_info(void);
+//Effectue le changement de context. Elle s'exécute sur une pile spéciale située dans chaque cœur.
 void thread_change(int id_core);
+//Initialise chaque cœur avec une petite différence d'initialisation pour le cœur 0.
 void thread_init_i(int i, thread_u* current_thread);
 
 int thread_init(void)
@@ -138,13 +140,16 @@ int thread_init(void)
 		join_table = htable__create_int();
 		return_table = htable__create_int();
 		all_thread_to_free = list__create();
+		//Initialise les mutex
 		pthread_mutex_init(&global_id_mutex, NULL);
 		pthread_mutex_init(&thread_count_mutex, NULL);
 		pthread_mutex_init(&all_thread_mutex, NULL);
 		pthread_mutex_init(&all_thread_to_free_mutex, NULL);
 		pthread_mutex_init(&join_table_mutex, NULL);
 		pthread_mutex_init(&return_table_mutex, NULL);
+		//Créer le sémaphore
 		semaphore_all_thread = sem_open("all_thread", O_CREAT, 0600, 0);	
+		//Si le sémaphore existait déjà, on l'initialise à 0
 		sem_init(semaphore_all_thread, 0, 0);
 		//Prépare le temps pour le timer
 		timeslice.it_value.tv_sec = 2;
@@ -153,9 +158,6 @@ int thread_init(void)
 		timeslice.it_interval.tv_sec = 0;
 		timeslice.it_interval.tv_usec = 0;
 		//thread_count == 0 => slot == 0
-		//Créer un context fait pour récupérer la fin d'un thread
-		if(getcontext(&(ending_thread.ctx)) < 0)
-			return -1;
 		ending_thread.ctx.uc_stack.ss_sp = ending_thread.stack;
 		ending_thread.ctx.uc_stack.ss_size = sizeof(ending_thread.stack);
 		ending_thread.ctx.uc_link = NULL;
@@ -166,18 +168,10 @@ int thread_init(void)
 		ending_thread.id = global_id++;
 		//créer le contexte pour le contexte de netoyage
 		makecontext(&ending_thread.ctx, thread_end_thread, 1, NULL);
-		//TODO find another way to create the thread from current "threrad"
-		//créer contex avec getcontext pour le thread courant
 		++thread_count;
 		thread_u* current_thread = (thread_u *)malloc(sizeof(thread_u));
 		if(current_thread == NULL)
 		{
-			thread_count = 0;
-			return -1;
-		}
-		if(getcontext(&(current_thread->ctx)) < 0)
-		{
-			free(current_thread);
 			thread_count = 0;
 			return -1;
 		}
@@ -188,11 +182,12 @@ int thread_init(void)
 		current_thread->ctx.uc_link = &ending_thread.ctx;
 		current_thread->cr.function = NULL;
 		current_thread->cr.arg = NULL;
+		//Enregistre la pile dans valgrind
 		current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
-		//Initialise les thread pthread (vue comme des cœurs par la suite pour des notion de sémantique)
+		//Initialise les thread pthread (vue comme des cœurs par la suite pour des notions de sémantique)
 		for(i = 0; i < get_number_of_core(); ++i)
 			thread_init_i(i, current_thread);
-		//Activer l'alarm et active l'interval
+		//Activer l'alarm et active l'interval (si interval il y a)
 		if(setitimer(ITIMER_REAL, &timeslice, NULL) < 0)
 			perror("setitimer");
 		return 0;
@@ -219,13 +214,18 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 	//Configure l'argument que l'on va donner à thread_catch_return qui exécutera start_routine
 	new_thread->cr.function = start_routine;
 	new_thread->cr.arg = arg;
+	//Enregistre la pile
 	new_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(new_thread->ctx.uc_stack.ss_sp, new_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
 	//créer le contexte
 	makecontext(&(new_thread->ctx), (void (*)())thread_catch_return, 1, &new_thread->cr);
 	if(thread_count == 0)
 		if(thread_init() != 0)
-			return (free(new_thread), -1);
-	//On le met après un eventuel appel à thread_init
+		{
+			VALGRIND_STACK_DEREGISTER(new_thread->valgrind_stackid);
+			free(new_thread);
+			return -1;
+		}
+	//On met l'id avec global_id après un eventuel appel à thread_init. (Ce qui garanti d'avoir toujours la même répartion des id
 	pthread_mutex_lock(&global_id_mutex);
 	new_thread->id = global_id++;
 	pthread_mutex_unlock(&global_id_mutex);
@@ -243,7 +243,7 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 	list__add_end(all_thread, new_thread);
 	sem_post(semaphore_all_thread);
 	pthread_mutex_unlock(&all_thread_mutex);
-	fprintf(stderr, "create new thread\n", new_thread, CURRENT_THREAD, id_core);
+	fprintf(stderr, "Create new thread %d on core %d\n", new_thread->id, id_core);
 	return 0;
 }
 
@@ -261,13 +261,16 @@ void thread_end_thread()
 	//If no more thread, we are the last
 	if(is_no_more_thread)//TODO how to finish this stuff
 	{
+		fprintf(stderr, "Finishing by %d on core %d\n", CURRENT_THREAD->id, id_core);
 		clear_finished_thread();
 		thread_u* current_thread = CURRENT_THREAD;
-		printf("LOUTRE 1\n");
 		int i;
 		for(i = 0; i < get_number_of_core(); ++i)
+		{
 			if(i != id_core)
 				pthread_kill(core[i].thread, SIGKILL);
+			VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
+		}
 		free(core);
 		//Free every thing
 		list__destroy(all_thread);
@@ -278,13 +281,14 @@ void thread_end_thread()
 		pthread_mutex_destroy(&all_thread_to_free_mutex);
 		pthread_mutex_destroy(&join_table_mutex);
 		pthread_mutex_destroy(&return_table_mutex);
+		sem_close(semaphore_all_thread);
 		sem_destroy(semaphore_all_thread);
 		//There is only one thread left, so join_table is empty
 		htable__destroy(join_table);
 		//TODO how to free all return values
 		htable__remove_int(return_table, current_thread->id);
 		htable__destroy(return_table);
-		printf("LOUTRE\n");
+		fprintf(stderr, "Finished by core %d\n", id_core);
 		free(current_thread);
 		exit(0);
 	}
@@ -304,7 +308,7 @@ void thread_schedul()
 	{
 		//So the current thread is no more active which mean less deadlock with the join
 		//The join will hopefully no see it
-		//XXX the return value is already in the return table
+		//the return value is already in the return table
 		CURRENT_THREAD = NULL;
 		//Bring back in the runqueu threads that have joined the current_thread
 		put_back_joining_thread_of(previous);
@@ -313,6 +317,7 @@ void thread_schedul()
 		pthread_mutex_lock(&all_thread_to_free_mutex);
 		list__add_front(all_thread_to_free, previous);
 		fprintf(stderr, "Plan deletion %d on core %d\n", previous->id, id_core);
+		//Plan to release the lock once we are finished with the current stack
 		CURRENT_CORE.unlock_thread_to_free = true;
 		//There is no more previous because we free it
 		previous = NULL;
@@ -322,16 +327,15 @@ void thread_schedul()
 		pthread_mutex_lock(&all_thread_mutex);
 		list__add_end(all_thread, previous);
 		sem_post(semaphore_all_thread);
+		//Plan to release the lock once we are finished with the current stack
 		CURRENT_CORE.unlock_all_thread = true;
 	}
+	//Switch to the core context so we will be on a new stack
 	if(previous != NULL)
 		swapcontext(&(previous->ctx), &(CURRENT_CORE.ctx));
 	else
 		setcontext(&(CURRENT_CORE.ctx));
 
-	//Reset the timer, eventualy change it
-	/*if(id_core == 0 && setitimer(ITIMER_REAL, &timeslice, NULL) < 0)*/
-		/*perror("setitimer");*/
 	clear_finished_thread();
 }
 
@@ -390,7 +394,7 @@ int thread_join(thread_t thread, void** retval)
 		if(i != id_core && core[i].current != NULL && core[i].current->id == thread)
 			found = true;
 	}
-	//XXX: Do move up the unlock, because other are less likely to change their current
+	//XXX: Do not move up the unlock, because other are less likely to change their current
 	pthread_mutex_unlock(&all_thread_mutex);
 	//If the thread isn't in the runqueu it is probably ended
 	if(!found)
@@ -420,8 +424,8 @@ int thread_join(thread_t thread, void** retval)
 	//Put information for the scheduler so he will know how to deal with it
 	CURRENT_THREAD->is_joining = true;
 	fprintf(stderr, "%d join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
+	//Plan to release the lock once we are finished with the current stack
 	CURRENT_CORE.unlock_join_table = true;
-	//XXX what happen if join_on_thread is put back into all_thread right now ?
 	//switch of process
 	thread_schedul();
 	//We are back, just check the return value of thread and go back to work
@@ -516,7 +520,7 @@ void clear_finished_thread(void)
 }
 int get_number_of_core(void)
 {
-	return 3; //sysconf(_SC_NPROCESSORS_ONLN);
+	return sysconf(_SC_NPROCESSORS_ONLN);
 }
 int get_idx_core(void)
 {
@@ -557,32 +561,36 @@ void print_core_info(void)
 void thread_change(int id_core)
 {
 	CURRENT_THREAD = NULL;
+	//Unlock all ressources the current thread locked in the API
 	if(CURRENT_CORE.unlock_thread_to_free)
 		pthread_mutex_unlock(&all_thread_to_free_mutex);
 	if(CURRENT_CORE.unlock_all_thread)
 		pthread_mutex_unlock(&all_thread_mutex);
 	if(CURRENT_CORE.unlock_join_table)
 		pthread_mutex_unlock(&join_table_mutex);
-	
+	//Now they are unlock, it's good
 	CURRENT_CORE.unlock_thread_to_free = false;
 	CURRENT_CORE.unlock_all_thread = false;
 	CURRENT_CORE.unlock_join_table = false;
 	//Get the next thread from the runqueu
 	UNIGNORE_SIGNAL(SIGALRM);
+	//Wait till there something in the runqueu
 	sem_wait(semaphore_all_thread);
 	IGNORE_SIGNAL(SIGALRM);
+	//Lock the runqueu so even if there is many thread in the runqueu, only one will modify the runqueu
 	pthread_mutex_lock(&all_thread_mutex);
 	CURRENT_THREAD = list__remove_front(all_thread);
 	pthread_mutex_unlock(&all_thread_mutex);
 	fprintf(stderr, "Start %d on core %d\n", CURRENT_THREAD->id, id_core);
 	UNIGNORE_SIGNAL(SIGALRM);
+	//Then switch to the thread context. No need to use swapcontext because the current context is not useful anymore
 	if(CURRENT_THREAD != NULL)
 		setcontext(&(CURRENT_THREAD->ctx));	
 	printf("Error CURRENT_THREAD is NULL\n");
 }
 void thread_init_i(int i, thread_u* current_thread)
 {
-	core[i].switch_after_getcontext = false;
+	//Initialise les variable du cœur
 	core[i].unlock_thread_to_free = false;
 	core[i].unlock_all_thread = false;	
 	core[i].unlock_join_table = false;
@@ -594,10 +602,11 @@ void thread_init_i(int i, thread_u* current_thread)
 	core[i].ctx.uc_stack.ss_size = sizeof(core[i].stack);
 	//Quel contexte executer quand celui créé sera fini
 	core[i].ctx.uc_link = NULL;
-	//Configure l'argument que l'on va donner à thread_catch_return qui exécutera start_routine
+	//Configure le contexte à exécuter quand le cœur fera de l'ordonnancement
 	makecontext(&(core[i].ctx), (void (*)())thread_change, 1, i);
-	VALGRIND_STACK_REGISTER(core[i].ctx.uc_stack.ss_sp, core[i].ctx.uc_stack.ss_sp + SIZE_STACK);
-	if(i == 0)
+	//Enregistre la pile du contexte du cœur comme cela valgrind sera sympa avec nous
+	core[i].valgrind_stackid = VALGRIND_STACK_REGISTER(core[i].ctx.uc_stack.ss_sp, core[i].ctx.uc_stack.ss_sp + SIZE_STACK);
+	if(i == 0)//Le cœur 0 à un traitement spécial car c'est lui qui exécute le code
 	{
 		core[0].thread = pthread_self();
 		core[0].current = current_thread;
@@ -605,7 +614,7 @@ void thread_init_i(int i, thread_u* current_thread)
 	else
 	{
 			core[i].current = NULL;
-			//Lancement du thread pthread
+			//Lancement du thread pthread (soit un cœur)
 			pthread_create(&(core[i].thread), NULL, (void* (*)(void*))thread_change, (void*)(long int)i); 
 	}
 }

@@ -13,7 +13,7 @@ struct htable
 {
 	List *table[SIZE_HASH_TABLE];
 	int (*hash) ();
-	  bool(*cmp) ();
+	bool(*cmp) ();
 	int size;
 };
 typedef struct htable htable;
@@ -87,6 +87,7 @@ void htable__remove(htable *h_table, void *key)
 		if(h_table->cmp(node->key, key))
 		{
 			list__remove(list);
+			free(node);
 			--h_table->size;
 			break;
 		}

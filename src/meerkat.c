@@ -39,6 +39,7 @@ typedef struct thread_u
 	bool is_joining;
 	int valgrind_stackid;
 	catch_return cr;
+	int id_joining;
 } thread_u;
 typedef struct core_information
 {
@@ -48,7 +49,7 @@ typedef struct core_information
 	ucontext_t ctx;
 	char stack[SIZE_STACK];
 	bool unlock_runqueue;
-	bool unlock_join_table;
+	bool unlock_join_queue;
 	int valgrind_stackid;
 } core_information;
 
@@ -67,9 +68,8 @@ static thread_u ending_thread;
 static struct itimerval timeslice;
 //Tableau associatif qui répertorie quel thread attend quel autre
 //La clef correspond a l'id du thread attendu et la donnée est la list (de type List*) des threads (des thread_u, pas des id) qui l'attendent
-static htable* join_table = NULL;
-static List* join_queu = NULL;
-static pthread_mutex_t join_table_mutex;
+static List* join_queue = NULL;
+static pthread_mutex_t join_queue_mutex;
 //Tableau associatif qui, pour chaque thread fini (clef = id du thread), lui associe sa valeur de retour si elle exist (via un appel à thread_exit)
 static htable* return_table = NULL;
 static pthread_mutex_t return_table_mutex;
@@ -132,13 +132,13 @@ int thread_init(void)
 			return -1;
 		//Initialise les structures dans lesquelles on va ranger les donnée
 		runqueue = list__create();
-		join_table = htable__create_int();
+		join_queue = list__create();
 		return_table = htable__create_int();
 		//Initialise les mutex
 		pthread_mutex_init(&global_id_mutex, NULL);
 		pthread_mutex_init(&thread_count_mutex, NULL);
 		pthread_mutex_init(&runqueue_mutex, NULL);
-		pthread_mutex_init(&join_table_mutex, NULL);
+		pthread_mutex_init(&join_queue_mutex, NULL);
 		pthread_mutex_init(&return_table_mutex, NULL);
 		//Créer le sémaphore
 		semaphore_runqueue = sem_open("runqueue", O_CREAT, 0600, 0);	
@@ -170,6 +170,7 @@ int thread_init(void)
 		}
 		current_thread->to_clean = false;
 		current_thread->is_joining = false;
+		current_thread->id_joining = -1;
 		//Un seul thread pour le moment, donc pas besoin de verrou
 		current_thread->id = global_id++;
 		current_thread->ctx.uc_link = &ending_thread.ctx;
@@ -204,6 +205,7 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 	//Infos supplémentaire sur le thread
 	new_thread->to_clean = false;
 	new_thread->is_joining = false;
+	new_thread->id_joining = -1;
 	//Configure l'argument que l'on va donner à thread_catch_return qui exécutera start_routine
 	new_thread->cr.function = start_routine;
 	new_thread->cr.arg = arg;
@@ -269,12 +271,12 @@ void thread_end_thread()
 		pthread_mutex_destroy(&global_id_mutex);
 		pthread_mutex_destroy(&thread_count_mutex);
 		pthread_mutex_destroy(&runqueue_mutex);
-		pthread_mutex_destroy(&join_table_mutex);
+		pthread_mutex_destroy(&join_queue_mutex);
 		pthread_mutex_destroy(&return_table_mutex);
 		sem_close(semaphore_runqueue);
 		sem_destroy(semaphore_runqueue);
 		//There is only one thread left, so join_table is empty
-		htable__destroy(join_table);
+		list__destroy(join_queue);
 		//TODO how to free all return values
 		htable__remove_int(return_table, current_thread->id);
 		htable__destroy(return_table);
@@ -308,7 +310,7 @@ void thread_schedul()
 		//There is no more CURRENT_CORE.previous because we free it
 		current_thread_dead = true;
 	}
-	else if(CURRENT_CORE.previous != NULL && !CURRENT_CORE.previous->is_joining)
+	else if(CURRENT_CORE.previous != NULL && !CURRENT_CORE.previous->is_joining)//FIXME don't know why, but if you use id_joining, it doesn't work.
 	{
 		pthread_mutex_lock(&runqueue_mutex);
 		list__add_end(runqueue, CURRENT_CORE.previous);
@@ -361,29 +363,45 @@ int thread_join(thread_t thread, void** retval)
 		return;
 	fprintf(stderr, "%d try to join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
 	//Check if the thread exist in the runqueu
-	//TODO also check among joining thread
-	//Put also join_table_mutex because if put_back_joining_thread_of is called after we've checked, , it will destroy the list
-	pthread_mutex_lock(&join_table_mutex);
+	//Put also join_queue_mutex because if put_back_joining_thread_of is called after we've checked it could be a problem
+	pthread_mutex_lock(&join_queue_mutex);
 	pthread_mutex_lock(&runqueue_mutex);
-	list__for_each(runqueue, th)
-	{
-		if(th->id == thread)
-		{
-			found = true;
-			break;
-		}
-	}
+	//Check on current working thread
 	for( i = 0;found == false && i < get_number_of_core(); ++i)
 	{
 		if(i != id_core && core[i].current != NULL && core[i].current->id == thread)
 			found = true;
 	}
-	//XXX: Do not move up the unlock, because other are less likely to change their current
+	//Check on the runqueue
+	if(!found)
+	{
+		list__for_each(runqueue, th)
+		{
+			if(th->id == thread)
+			{
+				found = true;
+				break;
+			}
+		}
+	}
+	//Do not move up the unlock, because other are less likely to change their current
 	pthread_mutex_unlock(&runqueue_mutex);
+	//check on the join_queue
+	if(!found)
+	{
+		list__for_each(join_queue, th)
+		{
+			if(th->id == thread)
+			{
+				found = true;
+				break;
+			}
+		}
+	}
 	//If the thread isn't in the runqueu it is probably ended
 	if(!found)
 	{
-		pthread_mutex_unlock(&join_table_mutex);
+		pthread_mutex_unlock(&join_queue_mutex);
 		if(retval != NULL)//If the thread is already finish, no need to wait and get its return value
 		{
 			pthread_mutex_lock(&return_table_mutex);
@@ -396,20 +414,13 @@ int thread_join(thread_t thread, void** retval)
 		return 0;
 	}
 	//Find the list of all the threads joining thread
-	List* join_on_thread = htable__find_int(join_table, thread);
-	//If not exist, create it
-	if(join_on_thread == NULL)
-	{
-		join_on_thread = list__create();
-		htable__insert_int(join_table, thread, join_on_thread);
-	}
-	//Add the current_thread to the list of thread which are joining thread
-	list__add_front(join_on_thread, CURRENT_THREAD);
-	//Put information for the scheduler so he will know how to deal with it
+	CURRENT_THREAD->id_joining = thread;
 	CURRENT_THREAD->is_joining = true;
+	list__add_front(join_queue, CURRENT_THREAD);
+	//Put information for the scheduler so he will know how to deal with it
 	fprintf(stderr, "%d join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
 	//Plan to release the lock once we are finished with the current stack
-	CURRENT_CORE.unlock_join_table = true;
+	CURRENT_CORE.unlock_join_queue = true;
 	//switch of process
 	thread_schedul();
 	//We are back, just check the return value of thread and go back to work
@@ -456,29 +467,26 @@ void thread_exit(void *retval)
 void put_back_joining_thread_of(thread_u* thread)
 {
 	int id_core = get_idx_core();
-	pthread_mutex_lock(&join_table_mutex);
+	pthread_mutex_lock(&join_queue_mutex);
 	pthread_mutex_lock(&runqueue_mutex);
 	//Get the join_list to know all the thread joining thread
-	List* join_on_thread = htable__find_int(join_table, thread->id);
-	if(join_on_thread == NULL)
-	{
-		fprintf(stderr, "No joiner for %d on core %d\n", thread->id, get_idx_core());
-		pthread_mutex_unlock(&runqueue_mutex);
-		pthread_mutex_unlock(&join_table_mutex);
-		return;
-	}
-	//Remove the entry from join_table
-	htable__remove_int(join_table, thread->id);
-	pthread_mutex_unlock(&join_table_mutex);
-	//Put every joining thread back into the runqueu
-	list__append(runqueue, join_on_thread);
+	thread_u* tmp = NULL;
 	fprintf(stderr, "Put back joiner of %d on core %d\n", thread->id, get_idx_core());
-	int i;
-	for(i = 0; i < list__get_size(join_on_thread); ++i)
-		sem_post(semaphore_runqueue);
+	//Put every joining thread back into the runqueu
+	list__for_each(join_queue, tmp)
+	{
+		if(tmp->id_joining == thread->id)
+		{
+			list__remove(join_queue);
+			tmp->is_joining = false;
+			tmp->id_joining = -1;
+			list__add_end(runqueue, tmp);
+			sem_post(semaphore_runqueue);
+			break;
+		}
+	}
+	pthread_mutex_unlock(&join_queue_mutex);
 	pthread_mutex_unlock(&runqueue_mutex);
-	//Free the list
-	list__destroy(join_on_thread);
 }
 
 void thread_catch_return(void * info)
@@ -492,6 +500,7 @@ int get_number_of_core(void)
 {
 	return sysconf(_SC_NPROCESSORS_ONLN);
 }
+
 int get_idx_core(void)
 {
 	int i, size = get_number_of_core();
@@ -501,33 +510,36 @@ int get_idx_core(void)
 			return i;
 	return -1;
 }
+
 void empty_handler(int s)
 {
 	printf("Call in empty handler core %d\n", get_idx_core());
 }
+
 void print_core_info(void)
 {
 	int i;
 	int sum = 0;
 	for(i = 0; i < get_number_of_core()*4 + 1; ++i)
-		printf("-");
-	printf("\n");
+		fprintf(stderr, "-");
+	fprintf(stderr, "\n");
 	for(i = 0; i < get_number_of_core(); ++i)
-		sum += printf("| %d ", i);
-	sum += printf("|\n");
+		sum += fprintf(stderr, "| %d ", i);
+	sum += fprintf(stderr, "|\n");
 	for(i = 0; i < sum-1; ++i)
-		printf("-");
-	printf("\n");
+		fprintf(stderr, "-");
+	fprintf(stderr, "\n");
 	for(i = 0; i < get_number_of_core(); ++i)
 		if(core[i].current == NULL)
-			printf("| p ");
+			fprintf(stderr, "| p ");
 		else
-			printf("| %d ", core[i].current->id);
-	printf("|\n");
+			fprintf(stderr, "| %d ", core[i].current->id);
+	fprintf(stderr, "|\n");
 	for(i = 0; i < sum-1; ++i)
-		printf("-");
-	printf("\n");
+		fprintf(stderr, "-");
+	fprintf(stderr, "\n");
 }
+
 void thread_change(int id_core)
 {
 	CURRENT_THREAD = NULL;
@@ -540,11 +552,11 @@ void thread_change(int id_core)
 	//Unlock all ressources the current thread locked in the API
 	if(CURRENT_CORE.unlock_runqueue)
 		pthread_mutex_unlock(&runqueue_mutex);
-	if(CURRENT_CORE.unlock_join_table)
-		pthread_mutex_unlock(&join_table_mutex);
+	if(CURRENT_CORE.unlock_join_queue)
+		pthread_mutex_unlock(&join_queue_mutex);
 	//Now they are unlock, it's good
 	CURRENT_CORE.unlock_runqueue = false;
-	CURRENT_CORE.unlock_join_table = false;
+	CURRENT_CORE.unlock_join_queue = false;
 	//Get the next thread from the runqueu
 	UNIGNORE_SIGNAL(SIGALRM);
 	//Wait till there something in the runqueu
@@ -561,11 +573,12 @@ void thread_change(int id_core)
 		setcontext(&(CURRENT_THREAD->ctx));	
 	printf("Error CURRENT_THREAD is NULL\n");
 }
+
 void thread_init_i(int i, thread_u* current_thread)
 {
 	//Initialise les variable du cœur
 	core[i].unlock_runqueue = false;	
-	core[i].unlock_join_table = false;
+	core[i].unlock_join_queue = false;
 	core[i].previous = NULL;
 	if(getcontext(&(core[i].ctx)) < 0)
 		exit(-1);

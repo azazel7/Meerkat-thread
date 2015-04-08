@@ -5,5 +5,9 @@ On monocore version we can add :
 - Detect a stackoverflow with mprotect
 - Add mutex between thread
 
-On multi-core version :
-Make th version work (Martin is on it, the source code is upside down and he's facing a lot of deadlocks and segfault)
+On multi-core version : (The source code seem good now, you can read it safely.)
+- Find a way to kill properly all core (pthread thread)
+- Find how free all global varial after a main return instead of a thread_exit
+- Try to replace our mutex by spin_locks so we will be faster
+- A good way (macro ?) to remove debug printf
+

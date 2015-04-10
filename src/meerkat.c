@@ -11,11 +11,12 @@
 #include <sys/stat.h>
 #include <valgrind/valgrind.h>
 #include <errno.h>
+#include <sys/mman.h>
 #include "list.h"
 #include "htable.h"
 
 //The size of the stack of each thread. Work well with 16384. Error if less or equal than 8192
-#define SIZE_STACK 16384*5
+#define SIZE_STACK 16384
 #define CURRENT_CORE core[id_core]
 #define CURRENT_THREAD core[id_core].current
 #define IGNORE_SIGNAL(i) signal(i, empty_handler)
@@ -221,8 +222,8 @@ int thread_init(void)
 			thread_init_i(i, current_thread);
 		
   //Activer l'alarm et active l'interval (si interval il y a)
-		if(setitimer(ITIMER_REAL, &timeslice, NULL) < 0)
-			perror("setitimer");
+		/*if(setitimer(ITIMER_REAL, &timeslice, NULL) < 0)*/
+			/*perror("setitimer");*/
 		return 0;
 }
 
@@ -257,7 +258,7 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 	
   //Enregistre la pile
 	new_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(new_thread->ctx.uc_stack.ss_sp, new_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
-	
+
   //créer le contexte
 	makecontext(&(new_thread->ctx), (void (*)())thread_catch_return, 1, &new_thread->cr);
 	if(thread_count == 0)
@@ -582,7 +583,7 @@ void thread_catch_return(void * info)
 
 int get_number_of_core(void)
 {
-	return sysconf(_SC_NPROCESSORS_ONLN);
+	return 4; //sysconf(_SC_NPROCESSORS_ONLN);
 }
 
 int get_idx_core(void)
@@ -656,13 +657,17 @@ void thread_change(int id_core)
 	pthread_mutex_lock(&runqueue_mutex);
 	CURRENT_THREAD = list__remove_front(runqueue);
 	pthread_mutex_unlock(&runqueue_mutex);
-	fprintf(stderr, "Start %d on core %d\n", CURRENT_THREAD->id, id_core);
 	UNIGNORE_SIGNAL(SIGALRM);
 	
-  //Then switch to the thread context. No need to use swapcontext because the current context is not useful anymore
+	  //Then switch to the thread context. No need to use swapcontext because the current context is not useful anymore
 	if(CURRENT_THREAD != NULL)
+	{
+		//FIXME WHAT HAPPEN IF A SIG COME RIGHT NOW
+		fprintf(stderr, "Start %d on core %d\n", CURRENT_THREAD->id, id_core);
 		setcontext(&(CURRENT_THREAD->ctx));	
+	}
 	printf("Error CURRENT_THREAD is NULL\n");
+	exit(0);
 }
 
 void thread_init_i(int i, thread_u* current_thread)

@@ -44,4 +44,9 @@ foreach(exempleFile ${exemple_source})
 	add_executable (${rd} ${exempleFile})
 	#Link meerkat dynamiquement au fichier d'exemple
 	target_link_libraries(${rd} meerkat)
+	#Ajoute le fichier d'exemple pour créer un nouvel exécutable via pthread
+	add_executable (${rd}_pthread ${exempleFile})
+	#Link meerkat dynamiquement au fichier d'exemple
+	target_link_libraries(${rd}_pthread pthread)
+	set_target_properties(${rd}_pthread PROPERTIES COMPILE_FLAGS "-DUSE_PTHREAD")
 endforeach()

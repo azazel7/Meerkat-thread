@@ -15,7 +15,7 @@
 #include "htable.h"
 
 //The size of the stack of each thread. Work well with 16384. Error if less or equal than 8192
-#define SIZE_STACK 16384
+#define SIZE_STACK 16384*5
 #define CURRENT_CORE core[id_core]
 #define CURRENT_THREAD core[id_core].current
 #define IGNORE_SIGNAL(i) signal(i, empty_handler)
@@ -127,6 +127,7 @@ int thread_init(void)
 		//Ajoute les gestionnaire de signaux
 		signal(SIGALRM, thread_handler);
 		signal(SIGVTALRM, thread_handler);
+		printf("DD %d\n", sizeof(core_information));
 		core  = malloc(sizeof(core_information)*get_number_of_core());
 		if(core == NULL)
 			return -1;
@@ -233,7 +234,6 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 	++thread_count;
 	pthread_mutex_unlock(&thread_count_mutex);
 	//new_thread correspond au thread courant
-	//current_thread correspond au thread que l'on vient de créer et sur lequel on va switcher
 	pthread_mutex_lock(&runqueue_mutex);
 	list__add_end(runqueue, new_thread);
 	sem_post(semaphore_runqueue);
@@ -545,6 +545,7 @@ void thread_change(int id_core)
 	CURRENT_THREAD = NULL;
 	if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->to_clean)
 	{
+		fprintf(stderr, "Free %d on core %d\n", CURRENT_CORE.previous->id, id_core);
 		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
 		free(CURRENT_CORE.previous);
 	}

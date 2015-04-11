@@ -288,8 +288,8 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 	pthread_mutex_lock(&runqueue_mutex);
 	list__add_end(runqueue, new_thread);
 	sem_post(semaphore_runqueue);
-	pthread_mutex_unlock(&runqueue_mutex);
 	fprintf(stderr, "Create new thread %d on core %d\n", new_thread->id, id_core);
+	pthread_mutex_unlock(&runqueue_mutex);
 	return 0;
 }
 
@@ -388,6 +388,7 @@ void thread_schedul()
 		swapcontext(&(CURRENT_CORE.previous->ctx), &(CURRENT_CORE.ctx));
 	else
 		setcontext(&(CURRENT_CORE.ctx));
+	UNIGNORE_SIGNAL(SIGALRM);
 }
 
 void thread_handler(int sig)
@@ -657,7 +658,6 @@ void thread_change(int id_core)
 	pthread_mutex_lock(&runqueue_mutex);
 	CURRENT_THREAD = list__remove_front(runqueue);
 	pthread_mutex_unlock(&runqueue_mutex);
-	UNIGNORE_SIGNAL(SIGALRM);
 	
 	  //Then switch to the thread context. No need to use swapcontext because the current context is not useful anymore
 	if(CURRENT_THREAD != NULL)

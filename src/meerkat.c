@@ -311,34 +311,8 @@ void thread_end_thread()
   if(is_no_more_thread)//TODO how to finish this stuff
     {
       fprintf(stderr, "Finishing by %d on core %d\n", CURRENT_THREAD->id, id_core);
-      thread_u* current_thread = CURRENT_THREAD;
-      int i;
-      for(i = 0; i < get_number_of_core(); ++i)
-	{
-	  if(i != id_core)
-	    pthread_kill(core[i].thread, SIGKILL);
-	  VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
-	}
-      free(core);
-		
-      //Free every thing
-      list__destroy(runqueue);
-      pthread_mutex_destroy(&global_id_mutex);
-      pthread_mutex_destroy(&thread_count_mutex);
-      pthread_mutex_destroy(&runqueue_mutex);
-      pthread_mutex_destroy(&join_queue_mutex);
-      pthread_mutex_destroy(&return_table_mutex);
-      sem_close(semaphore_runqueue);
-      sem_destroy(semaphore_runqueue);
-		
-      //There is only one thread left, so join_table is empty
-      list__destroy(join_queue);
-		
-      //TODO how to free all return values
-      htable__remove_int(return_table, current_thread->id);
-      htable__destroy(return_table);
-      fprintf(stderr, "Finished by core %d\n", id_core);
-      free(current_thread);
+
+      // On appelle freeRessources afin de libérer les variables globales
       exit(0);
     }
   thread_schedul();
@@ -706,4 +680,37 @@ void thread_init_i(int i, thread_u* current_thread)
       //Lancement du thread pthread (soit un cœur)
       pthread_create(&(core[i].thread), NULL, (void* (*)(void*))thread_change, (void*)(long int)i); 
     }
+}
+
+// La fonction free_resources est appellée à la fin du programme, et libère les ressources globales.
+__attribute((destructor)) 
+static void free_resources(){
+  int id_core = get_idx_core();
+      thread_u* current_thread = CURRENT_THREAD;
+      int i;
+      for(i = 0; i < get_number_of_core(); ++i)
+	{
+	  if(i != id_core)
+	    pthread_kill(core[i].thread, SIGKILL);
+	  VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
+	}
+      free(core);
+		
+      //Free every thing
+      list__destroy(runqueue);
+      pthread_mutex_destroy(&global_id_mutex);
+      pthread_mutex_destroy(&thread_count_mutex);
+      pthread_mutex_destroy(&runqueue_mutex);
+      pthread_mutex_destroy(&join_queue_mutex);
+      pthread_mutex_destroy(&return_table_mutex);
+      sem_close(semaphore_runqueue);
+      sem_destroy(semaphore_runqueue);
+		
+      //There is only one thread left, so join_table is empty
+      list__destroy(join_queue);
+		
+      htable__remove_int(return_table, current_thread->id);
+      htable__destroy(return_table);
+      fprintf(stderr, "Finished by core %d\n", id_core);
+      free(current_thread);
 }

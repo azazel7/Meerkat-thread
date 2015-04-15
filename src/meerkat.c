@@ -152,19 +152,13 @@ void thread_init_i(int i, thread_u * current_thread);
 
 int thread_init(void)
 {
-#ifdef DEBUG
-	printf("Canard\n");
-#else
-	printf("Loutre\n");
-#endif
-
 	int i;
 	FPRINTF("First\n");
 
 	//Ajoute les gestionnaire de signaux
 	signal(SIGALRM, thread_handler);
 	signal(SIGVTALRM, thread_handler);
-	printf("DD %d\n", sizeof(core_information));
+	FPRINTF("DD %d\n", sizeof(core_information));
 	core = malloc(sizeof(core_information) * get_number_of_core());
 	if(core == NULL)
 		return -1;

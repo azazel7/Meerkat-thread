@@ -685,6 +685,8 @@ void thread_init_i(int i, thread_u* current_thread)
 // La fonction free_resources est appellée à la fin du programme, et libère les ressources globales.
 __attribute((destructor)) 
 static void free_resources(){
+  if(core == NULL)
+    return;
   int id_core = get_idx_core();
       thread_u* current_thread = CURRENT_THREAD;
       int i;
@@ -712,5 +714,7 @@ static void free_resources(){
       htable__remove_int(return_table, current_thread->id);
       htable__destroy(return_table);
       fprintf(stderr, "Finished by core %d\n", id_core);
+
+      // TODO : Si on commente, fuite mémoire, si on laisse, invalid read
       free(current_thread);
 }

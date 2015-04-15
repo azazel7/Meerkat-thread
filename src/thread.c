@@ -10,6 +10,12 @@
 #include "ordonnanceur.h"
 #include "global.h"
 
+#ifndef NDEBUG
+#define FRPRINTF(chaine, __VA_ARGS__) fprintf(stderr, chaine, __VA_ARGS__)
+#else
+#define FRPRINTF(chaine, __VA_ARGS__) do{}while(0)
+#endif
+
 typedef int thread_t;
 
 // La liste de tous les threads lancé.

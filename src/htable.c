@@ -80,7 +80,6 @@ void htable__remove(htable *h_table, void *key)
 {
 	int idx = h_table->hash(key);
 	List *list = h_table->table[idx];
-	int count = 0, found = 0;
 	htable_node* node = NULL;
 	list__for_each(list, node)
 	{

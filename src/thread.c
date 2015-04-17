@@ -11,9 +11,9 @@
 #include "global.h"
 
 #ifndef NDEBUG
-#define FRPRINTF(chaine, __VA_ARGS__) fprintf(stderr, chaine, __VA_ARGS__)
+#define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #else
-#define FRPRINTF(chaine, __VA_ARGS__) do{}while(0)
+#define FPRINTF(fmt, ...) do{}while(0)
 #endif
 
 typedef int thread_t;

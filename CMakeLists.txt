@@ -27,8 +27,7 @@ endforeach()
 list(REMOVE_DUPLICATES Plankton_INCLUDE_DIRS)
 
 #Ajout d'un define pour éliminer des informations de debug
-# Decommenter pour avoir les printf
-#set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG")
 
 #Ajoute le repertoire qui contiendra libmeerkat.so
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/build)

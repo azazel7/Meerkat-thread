@@ -426,7 +426,8 @@ int thread_join(thread_t thread, void **retval)
 	//Check on current working thread
 	for(i = 0; found == false && i < get_number_of_core(); ++i)
 	{
-		if(i != id_core && core[i].current != NULL && core[i].current->id == thread)
+	  thread_u* tmp = core[i].current ; // XXX What happens if tmp gets freed now ?
+		if(i != id_core && tmp != NULL && tmp->id == thread)
 			found = true;
 	}
 

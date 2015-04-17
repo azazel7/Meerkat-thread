@@ -37,7 +37,6 @@ void list__destroy(List* list);
 bool list__is_end_iterator(List* list);
 unsigned int list__get_size(List* list);
 void list__apply(List* list, void (*func)()); 
-static void* list__remove_iterator(List* list, bool on_for_each);
 #define list__for_each(l, i) \
 	for (i = list__top(l), list__init_iterator(l); \
 	     list__is_end_iterator(l) == false; \

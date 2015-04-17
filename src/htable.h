@@ -75,6 +75,6 @@ void htable__apply(htable* h_table, void (*function)(void*));
 
  @brief Frees the memory of an hash table.
  */
-void htable__delete(htable* h_table);
+void htable__destroy(htable* h_table);
 
 

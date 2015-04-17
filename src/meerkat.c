@@ -150,6 +150,8 @@ void thread_change(int id_core);
 //Initialise chaque cœur avec une petite différence d'initialisation pour le cœur 0.
 void thread_init_i(int i, thread_u * current_thread);
 
+void free_ressources(void);
+
 int thread_init(void)
 {
 	int i;
@@ -158,7 +160,6 @@ int thread_init(void)
 	//Ajoute les gestionnaire de signaux
 	signal(SIGALRM, thread_handler);
 	signal(SIGVTALRM, thread_handler);
-	FPRINTF("DD %d\n", sizeof(core_information));
 	core = malloc(sizeof(core_information) * get_number_of_core());
 	if(core == NULL)
 		return -1;
@@ -189,6 +190,8 @@ int thread_init(void)
 	timeslice.it_interval.tv_sec = 0;
 	timeslice.it_interval.tv_usec = 0;
 
+	if(getcontext(&(ending_thread.ctx)) < 0)
+		exit(-1);
 	//thread_count == 0 => slot == 0
 	ending_thread.ctx.uc_stack.ss_sp = ending_thread.stack;
 	ending_thread.ctx.uc_stack.ss_size = sizeof(ending_thread.stack);
@@ -200,9 +203,10 @@ int thread_init(void)
 
 	//Un seul thread pour le moment, donc pas besoin de verrou
 	ending_thread.id = global_id++;
+	VALGRIND_STACK_REGISTER(ending_thread.ctx.uc_stack.ss_sp, ending_thread.ctx.uc_stack.ss_sp + SIZE_STACK);
 
 	//créer le contexte pour le contexte de netoyage
-	makecontext(&ending_thread.ctx, thread_end_thread, 1, NULL);
+	makecontext(&(ending_thread.ctx), free_ressources, 1, NULL);
 	++thread_count;
 	thread_u *current_thread = (thread_u *) malloc(sizeof(thread_u));
 	if(current_thread == NULL)
@@ -216,7 +220,7 @@ int thread_init(void)
 
 	//Un seul thread pour le moment, donc pas besoin de verrou
 	current_thread->id = global_id++;
-	current_thread->ctx.uc_link = &ending_thread.ctx;
+	current_thread->ctx.uc_link = NULL; //&ending_thread.ctx;
 	current_thread->cr.function = NULL;
 	current_thread->cr.arg = NULL;
 
@@ -255,7 +259,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	new_thread->ctx.uc_stack.ss_size = sizeof(new_thread->stack);
 
 	//Quel contexte executer quand celui créé sera fini
-	new_thread->ctx.uc_link = &ending_thread.ctx;
+	new_thread->ctx.uc_link = NULL; //&ending_thread.ctx;
 
 	//Infos supplémentaire sur le thread
 	new_thread->to_clean = false;
@@ -289,7 +293,6 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 		//Si l'utilisateur ne veut pas se souvenir du thread, on ne lui dit pas
 		*newthread = new_thread->id;
 
-	int id_core = get_idx_core();
 	pthread_mutex_lock(&thread_count_mutex);
 	++thread_count;
 	pthread_mutex_unlock(&thread_count_mutex);
@@ -298,7 +301,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	pthread_mutex_lock(&runqueue_mutex);
 	list__add_end(runqueue, new_thread);
 	sem_post(semaphore_runqueue);
-	FPRINTF("Create new thread %d on core %d\n", new_thread->id, id_core);
+	FPRINTF("Create new thread %d on core %d\n", new_thread->id, get_idx_core());
 	pthread_mutex_unlock(&runqueue_mutex);
 	return 0;
 }
@@ -412,7 +415,7 @@ int thread_join(thread_t thread, void **retval)
 	thread_u *th = NULL;
 	int id_core = get_idx_core();
 	if(CURRENT_THREAD == NULL || CURRENT_THREAD->id == thread)
-		return;
+		return -1;
 	FPRINTF("%d try to join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
 
 	//Check if the thread exist in the runqueu
@@ -423,7 +426,8 @@ int thread_join(thread_t thread, void **retval)
 	//Check on current working thread
 	for(i = 0; found == false && i < get_number_of_core(); ++i)
 	{
-		if(i != id_core && core[i].current != NULL && core[i].current->id == thread)
+	  thread_u* tmp = core[i].current ; // XXX What happens if tmp gets freed now ?
+		if(i != id_core && tmp != NULL && tmp->id == thread)
 			found = true;
 	}
 
@@ -534,7 +538,6 @@ void thread_exit(void *retval)
 
 void put_back_joining_thread_of(thread_u * thread)
 {
-	int id_core = get_idx_core();
 	pthread_mutex_lock(&join_queue_mutex);
 	pthread_mutex_lock(&runqueue_mutex);
 
@@ -695,38 +698,36 @@ void thread_init_i(int i, thread_u * current_thread)
 }
 
 // La fonction free_resources est appellée à la fin du programme, et libère les ressources globales.
-__attribute((destructor)) 
-static void free_resources(){
-  if(core == NULL)
-    return;
-  int id_core = get_idx_core();
-      thread_u* current_thread = CURRENT_THREAD;
-      int i;
-      for(i = 0; i < get_number_of_core(); ++i)
-	{
-		if(i != id_core)
-			pthread_kill(core[i].thread, SIGKILL);
-		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
-	}
-      free(core);
-		
-      //Free every thing
-      list__destroy(runqueue);
-      pthread_mutex_destroy(&global_id_mutex);
-      pthread_mutex_destroy(&thread_count_mutex);
-      pthread_mutex_destroy(&runqueue_mutex);
-      pthread_mutex_destroy(&join_queue_mutex);
-      pthread_mutex_destroy(&return_table_mutex);
-      sem_close(semaphore_runqueue);
-      sem_destroy(semaphore_runqueue);
-		
-      //There is only one thread left, so join_table is empty
-      list__destroy(join_queue);
-		
-      htable__remove_int(return_table, current_thread->id);
-      htable__destroy(return_table);
-      FPRINTF("Finished by core %d\n", id_core);
+__attribute((destructor))
+static void ending_process()
+{
+	if(core != NULL)
+		setcontext(&(ending_thread.ctx));
+}
 
-      // TODO : Si on commente, fuite mémoire, si on laisse, invalid read
-      free(current_thread);
+void free_ressources(void)
+{
+	int id_core = get_idx_core();
+	int i;
+
+	//Free every thing
+	list__destroy(runqueue);
+	pthread_mutex_destroy(&global_id_mutex);
+	pthread_mutex_destroy(&thread_count_mutex);
+	pthread_mutex_destroy(&runqueue_mutex);
+	pthread_mutex_destroy(&join_queue_mutex);
+	pthread_mutex_destroy(&return_table_mutex);
+	sem_close(semaphore_runqueue);
+	sem_destroy(semaphore_runqueue);
+
+	//There is only one thread left, so join_table is empty
+	list__destroy(join_queue);
+
+	htable__remove_int(return_table, CURRENT_THREAD->id);
+	htable__destroy(return_table);
+	free(CURRENT_THREAD);
+	for(i = 0; i < get_number_of_core(); ++i)
+		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
+	free(core);
+	FPRINTF("Finished by core %d\n", id_core);
 }

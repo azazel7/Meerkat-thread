@@ -1,6 +1,8 @@
 #include "list.h"
 #include <stdlib.h>
 
+static void* list__remove_iterator(List* list, bool on_for_each);
+
 void list__init_iterator(List* list)
 {
 	list->iterator = list->head;

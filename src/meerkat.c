@@ -23,9 +23,9 @@
 #define UNIGNORE_SIGNAL(i) signal(i, thread_handler)
 
 #ifdef DEBUG
-#define FPRINTF(chaine...) fprintf(stderr, chaine)
+#define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #else
-#define FPRINTF(chaine...) do{}while(0)
+#define FPRINTF(fmt, ...) do{}while(0)
 #endif
 
 typedef struct catch_return

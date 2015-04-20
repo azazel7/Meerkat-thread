@@ -14,9 +14,8 @@
 #include <sys/mman.h>
 #include "list.h"
 #include "htable.h"
+#include "global.h"
 
-//The size of the stack of each thread. Work well with 16384. Error if less or equal than 8192
-#define SIZE_STACK 16384
 #define CURRENT_CORE core[id_core]
 #define CURRENT_THREAD core[id_core].current
 #define IGNORE_SIGNAL(i) signal(i, empty_handler)
@@ -28,47 +27,11 @@
 #define FPRINTF(fmt, ...) do{}while(0)
 #endif
 
-typedef struct catch_return
-{
-	void *(*function) (void *);
-	void *arg;
-} catch_return;
-typedef struct thread_u
-{
-	int id;
-
-	//Context for swapcontext, setcontext, ... and everything
-	ucontext_t ctx;
-
-	//Stack for the thread
-	char stack[SIZE_STACK];
-
-	//Information so the scheduler will know if he must remove the thread
-	bool to_clean;
-
-	//Information for the scheduler
-	bool is_joining;
-	int valgrind_stackid;
-	catch_return cr;
-	int id_joining;
-} thread_u;
-typedef struct core_information
-{
-	pthread_t thread;
-	thread_u *current;
-	thread_u *previous;
-	ucontext_t ctx;
-	char stack[SIZE_STACK];
-	bool unlock_runqueue;
-	bool unlock_join_queue;
-	int valgrind_stackid;
-} core_information;
-
 typedef int thread_t;
 
 //La liste de tous les threads lancé.
-static List *runqueue = NULL;
-static pthread_spinlock_t runqueue_mutex;
+List *runqueue = NULL;
+pthread_spinlock_t runqueue_mutex;
 static sem_t *semaphore_runqueue;
 
 //Le nombre de thread lancé. Identique à list__get_size(runqueue).
@@ -643,10 +606,12 @@ void thread_change(int id_core)
 	sem_wait(semaphore_runqueue);
 	IGNORE_SIGNAL(SIGALRM);
 
-	//Lock the runqueu so even if there is many thread in the runqueu, only one will modify the runqueu
+/*	//Lock the runqueu so even if there is many thread in the runqueu, only one will modify the runqueu
 	pthread_spin_lock(&runqueue_mutex);
 	CURRENT_THREAD = list__remove_front(runqueue);
-	pthread_spin_unlock(&runqueue_mutex);
+	pthread_spin_unlock(&runqueue_mutex);*/
+
+	CURRENT_THREAD = get_thread_from_runqueue();
 
 	//Then switch to the thread context. No need to use swapcontext because the current context is not useful anymore
 	if(CURRENT_THREAD != NULL)

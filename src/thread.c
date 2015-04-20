@@ -10,7 +10,7 @@
 #include "ordonnanceur.h"
 #include "global.h"
 
-#ifndef NDEBUG
+#ifndef DEBUG
 #define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #else
 #define FPRINTF(fmt, ...) do{}while(0)
@@ -96,7 +96,7 @@ void clear_finished_thread(void);
 int get_number_of_core(void);
 
 int thread_init(void) {
-  fprintf(stderr, "First\n");
+  FPRINTF("First\n");
 
   // Ajoute les gestionnaires de signaux
   signal(SIGALRM, thread_handler);
@@ -224,7 +224,7 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
   // current_thread correspond au thread que l'on vient de créer et sur lequel on va switcher
   list__add_end(all_thread, new_thread);
 
-  fprintf(stderr, "create then switch from %p to %p\n", new_thread, current_thread);
+  FPRINTF("create then switch from %p to %p\n", new_thread, current_thread);
 
   // Sauvegarde le contexte actuel dans new_thread et switch sur le contexte de current_thread
   swapcontext(&(new_thread->ctx), &(current_thread->ctx));
@@ -233,7 +233,7 @@ int thread_create(thread_t *newthread, void *(*start_routine)(void *), void *arg
 }
 
 void thread_end_thread() {
-  fprintf(stderr, "Exit thread\n");
+  FPRINTF("Exit thread\n");
 
   // Informe the scheduler it will have to clean this thread
   current_thread->to_clean = true;
@@ -262,7 +262,7 @@ void thread_end_thread() {
 
 void thread_handler(int sig) {
 
-  fprintf(stderr, "Alarm (%d)!\n", sig);
+  FPRINTF("Alarm (%d)!\n", sig);
   thread_schedul();
 }
 

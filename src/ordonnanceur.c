@@ -9,6 +9,12 @@
 #include "ordonnanceur.h"
 #include "global.h"
 
+#ifndef DEBUG
+#define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+#else
+#define FPRINTF(fmt, ...) do{}while(0)
+#endif
+
 // La liste de tous les threads lancé.
 extern List* all_thread;
 
@@ -48,7 +54,7 @@ void thread_schedul() {
 
   // Get the next thread from the runqueu
   current_thread = list__remove_front(all_thread);
-  fprintf(stderr, "Switch from %p to %p\n", previous, current_thread);
+  FPRINTF("Switch from %p to %p\n", previous, current_thread);
 
   // Reset the timer, eventualy change it
   if(setitimer(ITIMER_REAL, &timeslice, NULL) < 0)

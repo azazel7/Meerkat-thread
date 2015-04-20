@@ -28,7 +28,7 @@ list(REMOVE_DUPLICATES Plankton_INCLUDE_DIRS)
 
 #Ajoute le repertoire qui contiendra libmeerkat.so
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/build)
-
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG")
 #Librairie utilisé pour notre bibli
 add_library(meerkat SHARED ${Plankton_SOURCES})
 #Exécutable pour les tests unitaires (essentiellement sur les listes et les htable)

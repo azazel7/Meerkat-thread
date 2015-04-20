@@ -1,3 +1,4 @@
+#include <sys/time.h>
 #include <stdio.h>
 #include <assert.h>
 #include "meerkat.h"
@@ -29,6 +30,9 @@ int main()
   thread_t th, th2;
   int err;
   void *res = NULL;
+  struct timeval tv1, tv2;
+  unsigned long us;
+  gettimeofday(&tv1, NULL);
 
   err = thread_create(&th, thfunc, NULL);
   assert(!err);
@@ -42,6 +46,9 @@ int main()
   err = thread_join(th2, &res);
   assert(!err);
   assert(res == (void*) 0xbeefdead);
+  gettimeofday(&tv2, NULL);
+  us = (tv2.tv_sec-tv1.tv_sec)*1000000+(tv2.tv_usec-tv1.tv_usec);
+  printf("time : %ld us\n", us);
 
   printf("join OK\n");
   return 0;

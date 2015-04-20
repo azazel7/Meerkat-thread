@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include "htable.h"
 #include "list.h"
 
@@ -12,8 +13,10 @@ typedef struct node
 struct htable
 {
 	List *table[SIZE_HASH_TABLE];
+	pthread_spinlock_t locks[SIZE_HASH_TABLE];
 	int (*hash) ();
 	bool(*cmp) ();
+	bool use_lock;
 	int size;
 };
 typedef struct htable htable;
@@ -21,11 +24,11 @@ typedef struct htable htable;
 static int htable__hash_int(void*);
 static bool htable__cmp_int(void*, void*);
 
-htable* htable__create_int(void)
+htable* htable__create_int(bool use_lock)
 {
-	return htable__create(htable__hash_int, htable__cmp_int);
+	return htable__create(htable__hash_int, htable__cmp_int, use_lock);
 }
-htable *htable__create(int (*hash) (), bool(*cmp) ())
+htable *htable__create(int (*hash) (), bool(*cmp) (), bool use_lock)
 {
 	htable *h_table = malloc(sizeof(htable));
 	if(h_table == NULL)
@@ -36,6 +39,7 @@ htable *htable__create(int (*hash) (), bool(*cmp) ())
 	h_table->cmp = cmp;
 	h_table->hash = hash;
 	h_table->size = 0;
+	h_table->use_lock = use_lock;
 	int i;
 	for(i = 0; i < SIZE_HASH_TABLE; i++)
 	{
@@ -46,6 +50,14 @@ htable *htable__create(int (*hash) (), bool(*cmp) ())
 			exit(EXIT_FAILURE);
 		}
 	}
+	if(use_lock)
+		for(i = 0; i < SIZE_HASH_TABLE; i++)
+			if(pthread_spin_init(&h_table->locks[i], PTHREAD_PROCESS_PRIVATE) != 0)
+			{
+				perror("htable_create -> pthread_spin_init");
+				exit(EXIT_FAILURE);
+			}
+		
 	return h_table;
 }
 
@@ -53,11 +65,19 @@ bool htable__contain(htable * h_table, void *key)
 {
 	int idx = h_table->hash(key);
 	htable_node* node = NULL;
+	if(h_table->use_lock)
+			pthread_spin_lock(&h_table->locks[idx]);
 	list__for_each(h_table->table[idx], node)
 	{
 		if(h_table->cmp(node->key, key))
+		{
+			if(h_table->use_lock)
+					pthread_spin_unlock(&h_table->locks[idx]);
 			return true;
+		}
 	}
+	if(h_table->use_lock)
+			pthread_spin_unlock(&h_table->locks[idx]);
 	return false;
 }
 
@@ -72,8 +92,16 @@ void htable__insert(htable *h_table, void* key, void *data)
 	}
 	node->key = key;
 	node->data = data;
+	if(h_table->use_lock)
+			pthread_spin_lock(&h_table->locks[idx]);
 	list__add_front(h_table->table[idx], node);
+	if(h_table->use_lock)
+			pthread_spin_unlock(&h_table->locks[idx]);
 	h_table->size++;
+	if(h_table->use_lock)
+		__sync_add_and_fetch(&h_table->size, 1);
+	else
+		h_table->size++;
 }
 
 void htable__remove(htable *h_table, void *key)
@@ -81,37 +109,28 @@ void htable__remove(htable *h_table, void *key)
 	int idx = h_table->hash(key);
 	List *list = h_table->table[idx];
 	htable_node* node = NULL;
+	if(h_table->use_lock)
+			pthread_spin_lock(&h_table->locks[idx]);
 	list__for_each(list, node)
 	{
 		if(h_table->cmp(node->key, key))
 		{
 			list__remove(list);
 			free(node);
-			--h_table->size;
+			if(h_table->use_lock)
+				__sync_sub_and_fetch(&h_table->size, 1);
+			else
+				--h_table->size;
 			break;
 		}
 	}
+	if(h_table->use_lock)
+			pthread_spin_unlock(&h_table->locks[idx]);
 }
 
 int htable__size(htable *h_table)
 {
 	return h_table->size;
-}
-
-void htable__merge(htable *h_table, htable *to_add)
-{
-	List *current;
-	htable_node* node = NULL;
-	int i;
-	for(i = 0; i < SIZE_HASH_TABLE; i++)
-	{
-		current = to_add->table[i];
-		list__for_each(current, node)
-		{
-				if(!htable__contain(h_table, node->key))
-					htable__insert(h_table, node->key, node->data);
-		}
-	}
 }
 
 bool htable__get_element(htable* h_table, void ** key, void** data)
@@ -120,6 +139,9 @@ bool htable__get_element(htable* h_table, void ** key, void** data)
 		return NULL;
 	int i;
 	for(i = 0; i < SIZE_HASH_TABLE; i++)
+	{
+		if(h_table->use_lock)
+			pthread_spin_lock(&h_table->locks[i]);
 		if(list__get_size(h_table->table[i]) > 0)
 		{
 			htable_node* node = list__top(h_table->table[i]);
@@ -127,8 +149,13 @@ bool htable__get_element(htable* h_table, void ** key, void** data)
 				*key = node->key;
 			if(data != NULL)
 				*data = node->data;
+			if(h_table->use_lock)
+				pthread_spin_unlock(&h_table->locks[i]);
 			return true;
 		}
+		if(h_table->use_lock)
+			pthread_spin_unlock(&h_table->locks[i]);
+	}
 	return false;
 }
 
@@ -138,8 +165,12 @@ void htable__apply(htable *h_table, void (*function) (void *))
 	for(i = 0; i < SIZE_HASH_TABLE; i++)
 	{
 		htable_node* node = NULL;
+		if(h_table->use_lock)
+			pthread_spin_lock(&h_table->locks[i]);
 		list__for_each(h_table->table[i], node)
 			function(node->data);
+		if(h_table->use_lock)
+			pthread_spin_unlock(&h_table->locks[i]);
 	}
 }
 
@@ -147,11 +178,20 @@ void *htable__find(htable *h_table, void *key)
 {
 	int idx = h_table->hash(key);
 	htable_node* node = NULL;
+	if(h_table->use_lock)
+			pthread_spin_lock(&h_table->locks[idx]);
+		
 	list__for_each(h_table->table[idx], node)
 	{
 		if(h_table->cmp(node->key, key))
+		{
+			if(h_table->use_lock)
+				pthread_spin_unlock(&h_table->locks[idx]);
 			return node->data;
+		}
 	}
+	if(h_table->use_lock)
+		pthread_spin_unlock(&h_table->locks[idx]);
 	return NULL;
 }
 
@@ -161,10 +201,21 @@ void htable__destroy(htable *h_table)
 	htable_node* node = NULL;
 	for(i = 0; i < SIZE_HASH_TABLE; i++)
 	{
+		if(h_table->use_lock)
+			pthread_spin_lock(&h_table->locks[i]);
 		list__for_each(h_table->table[i], node)
 			free(node);
 		list__destroy(h_table->table[i]);
+		if(h_table->use_lock)
+			pthread_spin_unlock(&h_table->locks[i]);
 	}
+	if(h_table->use_lock)
+		for(i = 0; i < SIZE_HASH_TABLE; i++)
+			if(pthread_spin_destroy(&h_table->locks[i]) != 0)
+			{
+				perror("htable_destroy -> pthread_spin_destroy");
+				exit(EXIT_FAILURE);
+			}
 	free(h_table);
 }
 

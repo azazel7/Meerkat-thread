@@ -5,7 +5,7 @@
 
 CTEST(htable, insert)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	ASSERT_EQUAL(0, htable__size(ht));
 	htable__insert(ht, 0, "duck");
 	ASSERT_EQUAL(1, htable__size(ht));
@@ -13,7 +13,7 @@ CTEST(htable, insert)
 }
 CTEST(htable, insert1)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	ASSERT_EQUAL(0, htable__size(ht));
 	long int i;
 	for(i = 0; i < 100; ++i)
@@ -23,7 +23,7 @@ CTEST(htable, insert1)
 }
 CTEST(htable, contain)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	htable__insert(ht, 0, "duck");
 	ASSERT_TRUE(htable__contain(ht, 0));
 	ASSERT_FALSE(htable__contain(ht, (void*)1));
@@ -31,7 +31,7 @@ CTEST(htable, contain)
 }
 CTEST(htable, remove)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	ASSERT_EQUAL(0, htable__size(ht));
 	htable__insert(ht, 0, "duck");
 	ASSERT_EQUAL(1, htable__size(ht));
@@ -43,7 +43,7 @@ CTEST(htable, remove)
 }
 CTEST(htable, remove2)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	ASSERT_EQUAL(0, htable__size(ht));
 	htable__insert(ht, 0, "duck");
 	htable__insert(ht, (void*)1, "duck");
@@ -55,7 +55,7 @@ CTEST(htable, remove2)
 }
 CTEST(htable, remove3)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	ASSERT_EQUAL(0, htable__size(ht));
 	long int i;
 	for(i = 0; i < 100; ++i)
@@ -73,7 +73,7 @@ CTEST(htable, remove3)
 }
 CTEST(htable, find)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	htable__insert(ht, 0, "duck");
 	char* tmp = htable__find(ht, 0);
 	ASSERT_STR("duck", tmp);
@@ -81,7 +81,7 @@ CTEST(htable, find)
 }
 CTEST(htable, find2)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	htable__insert(ht, 0, "duck");
 	htable__insert(ht, 0, "otter");
 	char* tmp = htable__find(ht, 0);
@@ -90,7 +90,7 @@ CTEST(htable, find2)
 }
 CTEST(htable, find3)
 {
-	htable* ht = htable__create_int();
+	htable* ht = htable__create_int(false);
 	htable__insert(ht, 0, "duck");
 	htable__insert(ht, (void*)1, "otter");
 	char* tmp = htable__find(ht, 0);
@@ -103,31 +103,5 @@ CTEST(htable, find3)
 	ASSERT_STR("otter", tmp);
 	tmp = htable__find(ht, 0);
 	ASSERT_NULL(tmp);
-	htable__destroy(ht);
-}
-CTEST(htable, merge)
-{
-	htable* ht = htable__create_int();
-	htable__insert(ht, 0, "duck");
-	htable__insert(ht, (void*)1, "otter");
-	htable* ht2 = htable__create_int();
-	htable__insert(ht2, (void*)1, "canard");
-	htable__insert(ht2, (void*)2, "loutre");
-	htable__merge(ht, ht2);
-	ASSERT_EQUAL(3, htable__size(ht));
-	ASSERT_EQUAL(2, htable__size(ht2));
-	ASSERT_TRUE(htable__contain(ht, 0));
-	ASSERT_TRUE(htable__contain(ht, (void*)1));
-	ASSERT_TRUE(htable__contain(ht, (void*)2));
-	char* tmp = htable__find(ht, 0);
-	ASSERT_STR("duck", tmp);
-	tmp = htable__find(ht, (void*)1);
-	ASSERT_STR("otter", tmp);
-	tmp = htable__find(ht, (void*)2);
-	ASSERT_STR("loutre", tmp);
-	tmp = htable__find(ht2, (void*)1);
-	ASSERT_STR("canard", tmp);
-	tmp = htable__find(ht2, (void*)2);
-	ASSERT_STR("loutre", tmp);
 	htable__destroy(ht);
 }

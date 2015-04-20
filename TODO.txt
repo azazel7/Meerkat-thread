@@ -7,7 +7,6 @@ On multi-core version : (The source code seem good now, you can read it safely.)
 - Find how free all global varial after a main return instead of a thread_exit
 - Try to replace mutexs by spin_locks so we will be faster
 	* Try to implement our own mutex, spinlocks and semaphore so we will be faster
-- A good way (macro ?) to remove debug printf
 - Change the use of a context in core (a stack for each core)
 - Signal system
 	so a thread will be able to send a signal to another one.

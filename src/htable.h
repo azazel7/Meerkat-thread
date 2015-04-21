@@ -13,8 +13,8 @@ typedef struct htable htable;
  * param hashe a function which has to return the hash of the data between 0 and SIZE_HASH_TABLE
  * param cmp a function which has to return 1 if both of its parameters are equal and 0 else 
  */
-htable* htable__create(int (*hash)(), bool (*cmp)());
-htable* htable__create_int(void);
+htable *htable__create(int (*hash) (), bool(*cmp) (), bool use_lock);
+htable* htable__create_int(bool use_lock);
 
 /**
 
@@ -50,13 +50,6 @@ int htable__size(htable* h_table);
  * return An element from the hash table or NULL
  */
 bool htable__get_element(htable* h_table, void ** key, void** data);
-
-/**
-
- @brief Adds all the elements of to_add to h_table.
- 
- */
-void htable__merge(htable* h_table, htable* to_add);
 
 /**
  

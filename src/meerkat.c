@@ -87,7 +87,6 @@ static pthread_spinlock_t join_queue_mutex;
 
 //Tableau associatif qui, pour chaque thread fini (clef = id du thread), lui associe sa valeur de retour si elle exist (via un appel à thread_exit)
 static htable *return_table = NULL;
-static pthread_spinlock_t return_table_mutex;
 
 //Variable qui servira à donner un id à chaque thread
 static int global_id = 0;
@@ -165,12 +164,11 @@ int thread_init(void)
 	//Initialise les structures dans lesquelles on va ranger les donnée
 	runqueue = list__create();
 	join_queue = list__create();
-	return_table = htable__create_int();
+	return_table = htable__create_int(true);
 
 	//Initialise les mutex
 	pthread_spin_init(&runqueue_mutex, PTHREAD_PROCESS_PRIVATE);
 	pthread_spin_init(&join_queue_mutex, PTHREAD_PROCESS_PRIVATE);
-	pthread_spin_init(&return_table_mutex, PTHREAD_PROCESS_PRIVATE);
 
 	//Créer le sémaphore
 	semaphore_runqueue = sem_open("runqueue", O_CREAT, 0600, 0);
@@ -455,13 +453,11 @@ int thread_join(thread_t thread, void **retval)
 		pthread_spin_unlock(&join_queue_mutex);
 		if(retval != NULL)		//If the thread is already finish, no need to wait and get its return value
 		{
-			pthread_spin_lock(&return_table_mutex);
 			*retval = htable__find_int(return_table, thread);
 
 			//If a return value, delete it like pthread do
 			if(*retval != NULL)
 				htable__remove_int(return_table, thread);
-			pthread_spin_unlock(&return_table_mutex);
 		}
 		return 0;
 	}
@@ -483,13 +479,11 @@ int thread_join(thread_t thread, void **retval)
 	//We are back, just check the return value of thread and go back to work
 	if(retval != NULL)
 	{
-		pthread_spin_lock(&return_table_mutex);
 		*retval = htable__find_int(return_table, thread);
 
 		//If we found the return value, delete it (like pthread)
 		if(*retval != NULL)
 			htable__remove_int(return_table, thread);
-		pthread_spin_unlock(&return_table_mutex);
 	}
 	return 0;
 }
@@ -515,11 +509,7 @@ void thread_exit(void *retval)
 
 	//Insert retval into the return_table
 	if(retval != NULL)
-	{
-		pthread_spin_lock(&return_table_mutex);
 		htable__insert_int(return_table, CURRENT_THREAD->id, retval);
-		pthread_spin_unlock(&return_table_mutex);
-	}
 
 	//Finish exiting the thread by calling function to clean the thread
 	thread_end_thread();
@@ -703,7 +693,6 @@ void free_ressources(void)
 	list__destroy(runqueue);
 	pthread_spin_destroy(&runqueue_mutex);
 	pthread_spin_destroy(&join_queue_mutex);
-	pthread_spin_destroy(&return_table_mutex);
 	sem_close(semaphore_runqueue);
 	sem_destroy(semaphore_runqueue);
 

@@ -33,7 +33,7 @@ typedef int thread_t;
 //La liste de tous les threads lancé.
 List *runqueue = NULL;
 pthread_spinlock_t runqueue_mutex;
-static sem_t *semaphore_runqueue;
+sem_t *semaphore_runqueue;
 
 //Le nombre de thread lancé. Identique à list__get_size(runqueue).
 static int thread_count = 0;
@@ -312,15 +312,6 @@ void thread_schedul()
 		//There is no more CURRENT_CORE.previous because we free it
 		current_thread_dead = true;
 	}
-	else if(CURRENT_CORE.previous != NULL && !CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
-	{
-		pthread_spin_lock(&runqueue_mutex);
-		list__add_end(runqueue, CURRENT_CORE.previous);
-		sem_post(semaphore_runqueue);
-
-		//Plan to release the lock once we are finished with the current stack
-		CURRENT_CORE.unlock_runqueue = true;
-	}
 
 	//Switch to the core context so we will be on a new stack
 	if(!current_thread_dead)
@@ -562,23 +553,24 @@ void print_core_info(void)
 
 void thread_change(int id_core)
 {
-	CURRENT_THREAD = NULL;
 	if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->to_clean)
 	{
 		FPRINTF("Free %d on core %d\n", CURRENT_CORE.previous->id, id_core);
 		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
 		free(CURRENT_CORE.previous);
 	}
+	else if(CURRENT_CORE.previous != NULL && !CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
+	{
+		add_thread_to_runqueue(CURRENT_CORE.previous);
+	}
+	CURRENT_THREAD = NULL;
 	CURRENT_CORE.previous = NULL;
 
 	//Unlock all ressources the current thread locked in the API
-	if(CURRENT_CORE.unlock_runqueue)
-		pthread_spin_unlock(&runqueue_mutex);
 	if(CURRENT_CORE.unlock_join_queue)
 		pthread_spin_unlock(&join_queue_mutex);
 
 	//Now they are unlock, it's good
-	CURRENT_CORE.unlock_runqueue = false;
 	CURRENT_CORE.unlock_join_queue = false;
 
 	//Get the next thread from the runqueu
@@ -672,7 +664,7 @@ void free_ressources(void)
 	free(CURRENT_THREAD);
 	for(i = 0; i < get_number_of_core(); ++i)
 	{
-		while(core[i].previous != NULL);
+		while(core[i].previous != NULL && core[i].current != NULL);
 		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
 	}
 	free(core);

@@ -15,6 +15,7 @@
 #include "list.h"
 #include "htable.h"
 #include "global.h"
+#include "runqueue.h"
 
 #define CURRENT_CORE core[id_core]
 #define CURRENT_THREAD core[id_core].current
@@ -63,6 +64,7 @@ static core_information *core = NULL;
 //FIXME Les contexte partagent les buffer de printf !!!!!!!!!
 //L'appel à exit kill tout le monde ...
 //faire un return dans le main kill tout le monde
+//TODO add in core_information something to say it's already in thread change (for signal)
 
 /*
  * Fonctions de l'API
@@ -356,6 +358,7 @@ void thread_handler(int sig)
 			pthread_kill(core[i].thread, SIGALRM);
 
 	//If the current core doesn't execute something, it's sleeping, so it already is in thread_schedul
+	//TODO change that by an attribut
 	if(CURRENT_THREAD != NULL)
 		thread_schedul();
 }
@@ -389,7 +392,7 @@ int thread_join(thread_t thread, void **retval)
 	//Check on current working thread
 	for(i = 0; found == false && i < get_number_of_core(); ++i)
 	{
-	  thread_u* tmp = core[i].current ; // XXX What happens if tmp gets freed now ?
+	  thread_u* tmp = core[i].current; // XXX What happens if tmp gets freed now ?
 		if(i != id_core && tmp != NULL && tmp->id == thread)
 			found = true;
 	}
@@ -692,7 +695,10 @@ void free_ressources(void)
 	htable__destroy(return_table);
 	free(CURRENT_THREAD);
 	for(i = 0; i < get_number_of_core(); ++i)
+	{
+		while(core[i].previous != NULL);
 		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
+	}
 	free(core);
 	FPRINTF("Finished by core %d\n", id_core);
 }

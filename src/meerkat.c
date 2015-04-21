@@ -37,7 +37,6 @@ static sem_t *semaphore_runqueue;
 
 //Le nombre de thread lancé. Identique à list__get_size(runqueue).
 static int thread_count = 0;
-static pthread_spinlock_t thread_count_mutex;
 
 //Thread pour finir et nettoyer un thread fini
 static thread_u ending_thread;
@@ -52,11 +51,9 @@ static pthread_spinlock_t join_queue_mutex;
 
 //Tableau associatif qui, pour chaque thread fini (clef = id du thread), lui associe sa valeur de retour si elle exist (via un appel à thread_exit)
 static htable *return_table = NULL;
-static pthread_spinlock_t return_table_mutex;
 
 //Variable qui servira à donner un id à chaque thread
 static int global_id = 0;
-static pthread_spinlock_t global_id_mutex;
 //
 static core_information *core = NULL;
 
@@ -132,14 +129,11 @@ int thread_init(void)
 	//Initialise les structures dans lesquelles on va ranger les donnée
 	runqueue = list__create();
 	join_queue = list__create();
-	return_table = htable__create_int();
+	return_table = htable__create_int(true);
 
 	//Initialise les mutex
-	pthread_spin_init(&global_id_mutex, PTHREAD_PROCESS_PRIVATE);
-	pthread_spin_init(&thread_count_mutex, PTHREAD_PROCESS_PRIVATE);
 	pthread_spin_init(&runqueue_mutex, PTHREAD_PROCESS_PRIVATE);
 	pthread_spin_init(&join_queue_mutex, PTHREAD_PROCESS_PRIVATE);
-	pthread_spin_init(&return_table_mutex, PTHREAD_PROCESS_PRIVATE);
 
 	//Créer le sémaphore
 	semaphore_runqueue = sem_open("runqueue", O_CREAT, 0600, 0);
@@ -249,18 +243,14 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 		}
 
 	//On met l'id avec global_id après un eventuel appel à thread_init. (Ce qui garanti d'avoir toujours la même répartion des id
-	pthread_spin_lock(&global_id_mutex);
-	new_thread->id = global_id++;
-	pthread_spin_unlock(&global_id_mutex);
+	new_thread->id = __sync_fetch_and_add(&global_id, 1);
 
 	//Attend d'avoir initialiser l'id avant de le donner
 	if(newthread != NULL)
 		//Si l'utilisateur ne veut pas se souvenir du thread, on ne lui dit pas
 		*newthread = new_thread->id;
 
-	pthread_spin_lock(&thread_count_mutex);
-	++thread_count;
-	pthread_spin_unlock(&thread_count_mutex);
+	__sync_add_and_fetch(&thread_count, 1);
 
 	//new_thread correspond au thread courant
 	pthread_spin_lock(&runqueue_mutex);
@@ -280,13 +270,10 @@ void thread_end_thread()
 	CURRENT_THREAD->to_clean = true;
 
 	//One thread less
-	pthread_spin_lock(&thread_count_mutex);
-	--thread_count;
-	bool is_no_more_thread = thread_count <= 0;
-	pthread_spin_unlock(&thread_count_mutex);
+	bool is_no_more_thread = __sync_sub_and_fetch(&thread_count, 1) <= 0;
 
 	//If no more thread, we are the last
-	if(is_no_more_thread)		//TODO how to finish this stuff
+	if(is_no_more_thread)
 	{
 		FPRINTF("Finishing by %d on core %d\n", CURRENT_THREAD->id, id_core);
 
@@ -432,13 +419,11 @@ int thread_join(thread_t thread, void **retval)
 		pthread_spin_unlock(&join_queue_mutex);
 		if(retval != NULL)		//If the thread is already finish, no need to wait and get its return value
 		{
-			pthread_spin_lock(&return_table_mutex);
 			*retval = htable__find_int(return_table, thread);
 
 			//If a return value, delete it like pthread do
 			if(*retval != NULL)
 				htable__remove_int(return_table, thread);
-			pthread_spin_unlock(&return_table_mutex);
 		}
 		return 0;
 	}
@@ -460,13 +445,11 @@ int thread_join(thread_t thread, void **retval)
 	//We are back, just check the return value of thread and go back to work
 	if(retval != NULL)
 	{
-		pthread_spin_lock(&return_table_mutex);
 		*retval = htable__find_int(return_table, thread);
 
 		//If we found the return value, delete it (like pthread)
 		if(*retval != NULL)
 			htable__remove_int(return_table, thread);
-		pthread_spin_unlock(&return_table_mutex);
 	}
 	return 0;
 }
@@ -492,11 +475,7 @@ void thread_exit(void *retval)
 
 	//Insert retval into the return_table
 	if(retval != NULL)
-	{
-		pthread_spin_lock(&return_table_mutex);
 		htable__insert_int(return_table, CURRENT_THREAD->id, retval);
-		pthread_spin_unlock(&return_table_mutex);
-	}
 
 	//Finish exiting the thread by calling function to clean the thread
 	thread_end_thread();
@@ -680,11 +659,8 @@ void free_ressources(void)
 
 	//Free every thing
 	list__destroy(runqueue);
-	pthread_spin_destroy(&global_id_mutex);
-	pthread_spin_destroy(&thread_count_mutex);
 	pthread_spin_destroy(&runqueue_mutex);
 	pthread_spin_destroy(&join_queue_mutex);
-	pthread_spin_destroy(&return_table_mutex);
 	sem_close(semaphore_runqueue);
 	sem_destroy(semaphore_runqueue);
 

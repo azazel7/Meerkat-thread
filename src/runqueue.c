@@ -16,23 +16,24 @@
 #include "htable.h"
 #include "runqueue.h"
 #include "global.h"
+#include "mutex.h"
 
 
 extern List *runqueue;
-extern pthread_spinlock_t runqueue_mutex;
+extern our_mutex_t runqueue_mutex;
 extern sem_t *semaphore_runqueue;
 
 thread_u * get_thread_from_runqueue(){
 	//Lock the runqueue so even if there is many thread in the runqueue, only one will modify the runqueue
-	pthread_spin_lock(&runqueue_mutex);
+	our_mutex__lock(runqueue_mutex);
 	thread_u * thread = list__remove_front(runqueue);
-	pthread_spin_unlock(&runqueue_mutex);
+	our_mutex__unlock(runqueue_mutex);
 	return thread;
 }
 void add_thread_to_runqueue(thread_u* thread)
 {
-		pthread_spin_lock(&runqueue_mutex);
+		our_mutex__lock(runqueue_mutex);
 		list__add_end(runqueue, thread);
-		pthread_spin_unlock(&runqueue_mutex);
+		our_mutex__unlock(runqueue_mutex);
 		sem_post(semaphore_runqueue);
 }

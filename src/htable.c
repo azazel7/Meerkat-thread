@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include "htable.h"
 #include "list.h"
+#include "mutex.h"
 
 typedef struct node
 {
@@ -13,7 +13,7 @@ typedef struct node
 struct htable
 {
 	List *table[SIZE_HASH_TABLE];
-	pthread_spinlock_t locks[SIZE_HASH_TABLE];
+	our_mutex_t locks[SIZE_HASH_TABLE];
 	int (*hash) ();
 	bool(*cmp) ();
 	bool use_lock;
@@ -52,9 +52,9 @@ htable *htable__create(int (*hash) (), bool(*cmp) (), bool use_lock)
 	}
 	if(use_lock)
 		for(i = 0; i < SIZE_HASH_TABLE; i++)
-			if(pthread_spin_init(&h_table->locks[i], PTHREAD_PROCESS_PRIVATE) != 0)
+			if(!our_mutex__init(&h_table->locks[i]))
 			{
-				perror("htable_create -> pthread_spin_init");
+				perror("htable_create -> our_mutex__init");
 				exit(EXIT_FAILURE);
 			}
 		
@@ -66,18 +66,18 @@ bool htable__contain(htable * h_table, void *key)
 	int idx = h_table->hash(key);
 	htable_node* node = NULL;
 	if(h_table->use_lock)
-			pthread_spin_lock(&h_table->locks[idx]);
+			our_mutex__lock(h_table->locks[idx]);
 	list__for_each(h_table->table[idx], node)
 	{
 		if(h_table->cmp(node->key, key))
 		{
 			if(h_table->use_lock)
-					pthread_spin_unlock(&h_table->locks[idx]);
+					our_mutex__unlock(h_table->locks[idx]);
 			return true;
 		}
 	}
 	if(h_table->use_lock)
-			pthread_spin_unlock(&h_table->locks[idx]);
+			our_mutex__unlock(h_table->locks[idx]);
 	return false;
 }
 
@@ -93,10 +93,10 @@ void htable__insert(htable *h_table, void* key, void *data)
 	node->key = key;
 	node->data = data;
 	if(h_table->use_lock)
-			pthread_spin_lock(&h_table->locks[idx]);
+			our_mutex__lock(h_table->locks[idx]);
 	list__add_front(h_table->table[idx], node);
 	if(h_table->use_lock)
-			pthread_spin_unlock(&h_table->locks[idx]);
+			our_mutex__unlock(h_table->locks[idx]);
 	h_table->size++;
 	if(h_table->use_lock)
 		__sync_add_and_fetch(&h_table->size, 1);
@@ -110,7 +110,7 @@ void htable__remove(htable *h_table, void *key)
 	List *list = h_table->table[idx];
 	htable_node* node = NULL;
 	if(h_table->use_lock)
-			pthread_spin_lock(&h_table->locks[idx]);
+			our_mutex__lock(h_table->locks[idx]);
 	list__for_each(list, node)
 	{
 		if(h_table->cmp(node->key, key))
@@ -125,7 +125,7 @@ void htable__remove(htable *h_table, void *key)
 		}
 	}
 	if(h_table->use_lock)
-			pthread_spin_unlock(&h_table->locks[idx]);
+			our_mutex__unlock(h_table->locks[idx]);
 }
 
 int htable__size(htable *h_table)
@@ -141,7 +141,7 @@ bool htable__get_element(htable* h_table, void ** key, void** data)
 	for(i = 0; i < SIZE_HASH_TABLE; i++)
 	{
 		if(h_table->use_lock)
-			pthread_spin_lock(&h_table->locks[i]);
+			our_mutex__lock(h_table->locks[i]);
 		if(list__get_size(h_table->table[i]) > 0)
 		{
 			htable_node* node = list__top(h_table->table[i]);
@@ -150,11 +150,11 @@ bool htable__get_element(htable* h_table, void ** key, void** data)
 			if(data != NULL)
 				*data = node->data;
 			if(h_table->use_lock)
-				pthread_spin_unlock(&h_table->locks[i]);
+				our_mutex__unlock(h_table->locks[i]);
 			return true;
 		}
 		if(h_table->use_lock)
-			pthread_spin_unlock(&h_table->locks[i]);
+			our_mutex__unlock(h_table->locks[i]);
 	}
 	return false;
 }
@@ -166,11 +166,11 @@ void htable__apply(htable *h_table, void (*function) (void *))
 	{
 		htable_node* node = NULL;
 		if(h_table->use_lock)
-			pthread_spin_lock(&h_table->locks[i]);
+			our_mutex__lock(h_table->locks[i]);
 		list__for_each(h_table->table[i], node)
 			function(node->data);
 		if(h_table->use_lock)
-			pthread_spin_unlock(&h_table->locks[i]);
+			our_mutex__unlock(h_table->locks[i]);
 	}
 }
 
@@ -179,19 +179,19 @@ void *htable__find(htable *h_table, void *key)
 	int idx = h_table->hash(key);
 	htable_node* node = NULL;
 	if(h_table->use_lock)
-			pthread_spin_lock(&h_table->locks[idx]);
+			our_mutex__lock(h_table->locks[idx]);
 		
 	list__for_each(h_table->table[idx], node)
 	{
 		if(h_table->cmp(node->key, key))
 		{
 			if(h_table->use_lock)
-				pthread_spin_unlock(&h_table->locks[idx]);
+				our_mutex__unlock(h_table->locks[idx]);
 			return node->data;
 		}
 	}
 	if(h_table->use_lock)
-		pthread_spin_unlock(&h_table->locks[idx]);
+		our_mutex__unlock(h_table->locks[idx]);
 	return NULL;
 }
 
@@ -202,20 +202,16 @@ void htable__destroy(htable *h_table)
 	for(i = 0; i < SIZE_HASH_TABLE; i++)
 	{
 		if(h_table->use_lock)
-			pthread_spin_lock(&h_table->locks[i]);
+			our_mutex__lock(h_table->locks[i]);
 		list__for_each(h_table->table[i], node)
 			free(node);
 		list__destroy(h_table->table[i]);
 		if(h_table->use_lock)
-			pthread_spin_unlock(&h_table->locks[i]);
+			our_mutex__unlock(h_table->locks[i]);
 	}
 	if(h_table->use_lock)
 		for(i = 0; i < SIZE_HASH_TABLE; i++)
-			if(pthread_spin_destroy(&h_table->locks[i]) != 0)
-			{
-				perror("htable_destroy -> pthread_spin_destroy");
-				exit(EXIT_FAILURE);
-			}
+			our_mutex__destroy(&h_table->locks[i]);
 	free(h_table);
 }
 

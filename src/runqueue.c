@@ -20,20 +20,20 @@
 
 
 extern List *runqueue;
-extern our_mutex_t runqueue_mutex;
+extern mutex_t runqueue_mutex;
 extern sem_t *semaphore_runqueue;
 
 thread_u * get_thread_from_runqueue(){
 	//Lock the runqueue so even if there is many thread in the runqueue, only one will modify the runqueue
-	our_mutex__lock(runqueue_mutex);
+	mutex_lock(&runqueue_mutex);
 	thread_u * thread = list__remove_front(runqueue);
-	our_mutex__unlock(runqueue_mutex);
+	mutex_unlock(&runqueue_mutex);
 	return thread;
 }
 void add_thread_to_runqueue(thread_u* thread)
 {
-		our_mutex__lock(runqueue_mutex);
+		mutex_lock(&runqueue_mutex);
 		list__add_end(runqueue, thread);
-		our_mutex__unlock(runqueue_mutex);
+		mutex_unlock(&runqueue_mutex);
 		sem_post(semaphore_runqueue);
 }

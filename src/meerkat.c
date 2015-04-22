@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <ucontext.h>
 #include <string.h>
 #include <stdio.h>
@@ -12,17 +14,18 @@
 #include <valgrind/valgrind.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <sched.h>
 #include "list.h"
 #include "htable.h"
 #include "global.h"
 #include "runqueue.h"
 #include "mutex.h"
 
+
 #define CURRENT_CORE core[id_core]
 #define CURRENT_THREAD core[id_core].current
 #define IGNORE_SIGNAL(i) signal(i, empty_handler)
 #define UNIGNORE_SIGNAL(i) signal(i, thread_handler)
-
 #ifdef DEBUG
 #define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #else
@@ -631,9 +634,11 @@ void thread_init_i(int i, thread_u * current_thread)
 	else
 	{
 		core[i].current = NULL;
-
+		
 		//Lancement du thread pthread (soit un cœur)
-		pthread_create(&(core[i].thread), NULL, (void *(*)(void *))thread_change, (void *)(long int)i);
+		clone((int (*)(void *))thread_change, core[i].stack + SIZE_STACK, 
+		      CLONE_FILES | CLONE_FS | CLONE_VM | CLONE_THREAD | CLONE_SYSVSEM | CLONE_DETACHED, 
+		      (void *)(long int)i);
 	}
 }
 
@@ -641,8 +646,8 @@ void thread_init_i(int i, thread_u * current_thread)
 __attribute((destructor))
 static void ending_process()
 {
-	if(core != NULL)
-		setcontext(&(ending_thread.ctx));
+  	if(core != NULL)
+  setcontext(&(ending_thread.ctx));
 }
 
 void free_ressources(void)

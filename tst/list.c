@@ -126,7 +126,7 @@ CTEST(list, add_end)
 CTEST(list, has_next_iterator)
 {
 	List* list = list__create();
-	int a = 1, b = 2;
+	int a = 1;
 	list__init_iterator(list);
 	ASSERT_FALSE(list__has_next_iterator(list));
 	list__add_front(list, &a);
@@ -371,7 +371,6 @@ CTEST(list, remove)
 {
 	List* list = list__create();
 	int a = 1, b = 2, c = 3;
-	int* tmp = NULL;
 	list__add_front(list, &a);
 	list__add_front(list, &b);
 	list__add_front(list, &c);
@@ -387,7 +386,7 @@ CTEST(list, remove)
 CTEST(list, remove2)
 {
 	List* list = list__create();
-	int a = 1, b = 2, c = 3, i = 0;
+	int a = 1, b = 2, c = 3;
 	list__add_front(list, &a);
 	list__add_front(list, &b);
 	list__add_front(list, &c);
@@ -407,7 +406,7 @@ CTEST(list, remove2)
 CTEST(list, remove3)
 {
 	List* list = list__create();
-	int a = 1, b = 2, c = 3, i = 0;
+	int a = 1, b = 2, c = 3;
 	list__add_front(list, &a);
 	list__add_front(list, &b);
 	list__add_front(list, &c);
@@ -429,7 +428,7 @@ CTEST(list, append)
 {
 	List* list = list__create();
 	List* list2 = list__create();
-	int a = 1, b = 2, c = 3, i = 0;
+	int a = 1, b = 2, c = 3;
 	list__add_front(list, &a);
 	list__add_front(list, &b);
 	list__add_front(list, &c);
@@ -437,7 +436,6 @@ CTEST(list, append)
 	list__add_front(list2, &b);
 	ASSERT_EQUAL(3, list__get_size(list));
 	ASSERT_EQUAL(2, list__get_size(list2));
-	int *t = NULL;
 	list__append(list, list2);
 	ASSERT_EQUAL(5, list__get_size(list));
 	ASSERT_EQUAL(2, list__get_size(list2));
@@ -466,12 +464,11 @@ CTEST(list, append2)
 {
 	List* list = list__create();
 	List* list2 = list__create();
-	int a = 1, b = 2, c = 3, i = 0;
+	int a = 1, b = 2;
 	list__add_front(list2, &a);
 	list__add_front(list2, &b);
 	ASSERT_EQUAL(0, list__get_size(list));
 	ASSERT_EQUAL(2, list__get_size(list2));
-	int *t = NULL;
 	list__append(list, list2);
 	ASSERT_EQUAL(2, list__get_size(list));
 	ASSERT_EQUAL(2, list__get_size(list2));
@@ -490,10 +487,8 @@ CTEST(list, append3)
 {
 	List* list = list__create();
 	List* list2 = list__create();
-	int a = 1, b = 2, c = 3, i = 0;
 	ASSERT_EQUAL(0, list__get_size(list));
 	ASSERT_EQUAL(0, list__get_size(list2));
-	int *t = NULL;
 	list__append(list, list2);
 	ASSERT_EQUAL(0, list__get_size(list));
 	ASSERT_EQUAL(0, list__get_size(list2));

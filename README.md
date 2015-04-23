@@ -2,8 +2,8 @@
 A thread library in user space
 
 # How to create it ?
-cmake .
-make -j
+cmake .<br/>
+make -j <br/>
 Enjoy :)
 
 # How to check the result ?

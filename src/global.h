@@ -3,6 +3,17 @@
 //The size of the stack of each thread. Work well with 16384. Error if less or equal than 8192
 #define SIZE_STACK 16384
 
+#define CURRENT_CORE core[id_core]
+#define CURRENT_THREAD core[id_core].current
+#define IGNORE_SIGNAL(i) signal(i, empty_handler)
+#define UNIGNORE_SIGNAL(i) signal(i, thread_handler)
+
+#ifdef DEBUG
+#define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+#else
+#define FPRINTF(fmt, ...) do{}while(0)
+#endif
+
 typedef struct catch_return
 {
 	void *(*function) (void *);
@@ -38,5 +49,5 @@ typedef struct core_information
 	bool unlock_runqueue;
 	bool unlock_join_queue;
 	int valgrind_stackid;
+	List* runqueue;
 } core_information;
-

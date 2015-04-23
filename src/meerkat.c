@@ -19,23 +19,10 @@
 #include "mutex.h"
 #include "meerkat.h"
 
-#define CURRENT_CORE core[id_core]
-#define CURRENT_THREAD core[id_core].current
-#define IGNORE_SIGNAL(i) signal(i, empty_handler)
-#define UNIGNORE_SIGNAL(i) signal(i, thread_handler)
-
-#ifdef DEBUG
-#define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
-#else
-#define FPRINTF(fmt, ...) do{}while(0)
-#endif
-
-typedef int thread_t;
-
 //La liste de tous les threads lancé.
 List *runqueue = NULL;
 mutex_t runqueue_mutex;
-sem_t *semaphore_runqueue;
+sem_t *semaphore_runqueue = NULL;
 
 //Le nombre de thread lancé. Identique à list__get_size(runqueue).
 static int thread_count = 0;
@@ -57,7 +44,7 @@ static htable *return_table = NULL;
 //Variable qui servira à donner un id à chaque thread
 static int global_id = 0;
 
-static core_information *core = NULL;
+core_information *core = NULL;
 
 //TODO ajouter des verrous pour toutes les ressources partagées
 //FIXME Les contexte partagent les buffer de printf !!!!!!!!!
@@ -185,7 +172,7 @@ int thread_init(void)
 
 	//Enregistre la pile dans valgrind
 	current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
-
+	
 	//Initialise les thread pthread (vue comme des cœurs par la suite pour des notions de sémantique)
 	for(i = 0; i < get_number_of_core(); ++i)
 		thread_init_i(i, current_thread);
@@ -418,7 +405,7 @@ void put_back_joining_thread_of(thread_u * thread)
 	{
 		thread->joiner->is_joining = false;
 		thread->joiner->id_joining = -1;
-		add_thread_to_runqueue(thread->joiner);
+		add_thread_to_runqueue(get_idx_core(), thread->joiner);
 	}
 }
 
@@ -485,25 +472,19 @@ void thread_change(int id_core)
 	}
 	else if(CURRENT_CORE.previous != NULL && !CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
 	{
-		add_thread_to_runqueue(CURRENT_CORE.previous);
+		add_thread_to_runqueue(id_core, CURRENT_CORE.previous);
 	}
 	else if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
 	{
 		void* found = htable__find_and_apply(all_thread, (void*)(long long int)CURRENT_CORE.previous->id_joining, (void (*)(void*))apply_join);
 		if(!found)
-			add_thread_to_runqueue(CURRENT_CORE.previous);
+			add_thread_to_runqueue(id_core, CURRENT_CORE.previous);
 	}
 	CURRENT_THREAD = NULL;
 	CURRENT_CORE.previous = NULL;
 
 	//Get the next thread from the runqueu
-	UNIGNORE_SIGNAL(SIGALRM);
-
-	//Wait till there something in the runqueu
-	sem_wait(semaphore_runqueue);
-	IGNORE_SIGNAL(SIGALRM);
-
-	CURRENT_THREAD = get_thread_from_runqueue();
+	CURRENT_THREAD = get_thread_from_runqueue(id_core);
 
 	//Then switch to the thread context. No need to use swapcontext because the current context is not useful anymore
 	if(CURRENT_THREAD != NULL)
@@ -522,6 +503,7 @@ void thread_init_i(int i, thread_u * current_thread)
 	core[i].unlock_runqueue = false;
 	core[i].unlock_join_queue = false;
 	core[i].previous = NULL;
+	core[i].runqueue = list__create();	
 	if(getcontext(&(core[i].ctx)) < 0)
 		exit(-1);
 

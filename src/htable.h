@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
-#define SIZE_HASH_TABLE 10
+#define SIZE_HASH_TABLE 30
 
 struct list;
 typedef struct list List;
@@ -57,6 +57,8 @@ bool htable__get_element(htable* h_table, void ** key, void** data);
  */
 void* htable__find(htable* h_table, void* data); 
 #define htable__find_int(h_table, key) htable__find(h_table, (void*)(long int)key) 
+
+void* htable__find_and_apply(htable* h_table, void* data, void(*)(void*)); 
 
 /**
  

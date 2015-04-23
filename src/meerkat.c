@@ -48,7 +48,7 @@ static struct itimerval timeslice;
 
 //Tableau associatif qui répertorie quel thread attend quel autre
 //La clef correspond a l'id du thread attendu et la donnée est la list (de type List*) des threads (des thread_u, pas des id) qui l'attendent
-static List *join_queue = NULL;
+static htable* all_thread = NULL;
 static mutex_t join_queue_mutex;
 
 //Tableau associatif qui, pour chaque thread fini (clef = id du thread), lui associe sa valeur de retour si elle exist (via un appel à thread_exit)
@@ -107,6 +107,10 @@ void thread_init_i(int i, thread_u * current_thread);
 
 void free_ressources(void);
 
+void apply_join(thread_u* thread);
+
+void apply_put_back(thread_u* thread);
+
 int thread_init(void)
 {
 	int i;
@@ -121,7 +125,7 @@ int thread_init(void)
 
 	//Initialise les structures dans lesquelles on va ranger les donnée
 	runqueue = list__create();
-	join_queue = list__create();
+	all_thread = htable__create_int(true);
 	return_table = htable__create_int(true);
 
 	//Initialise les mutex
@@ -168,13 +172,16 @@ int thread_init(void)
 	}
 	current_thread->to_clean = false;
 	current_thread->is_joining = false;
-	current_thread->id_joining = -1;
+	current_thread->joiner = NULL;
 
 	//Un seul thread pour le moment, donc pas besoin de verrou
 	current_thread->id = global_id++;
-	current_thread->ctx.uc_link = NULL; //&ending_thread.ctx;
+	current_thread->ctx.uc_link = NULL;
 	current_thread->cr.function = NULL;
 	current_thread->cr.arg = NULL;
+	current_thread->id_joining = -1;
+
+	htable__insert_int(all_thread, current_thread->id, current_thread);
 
 	//Enregistre la pile dans valgrind
 	current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
@@ -216,11 +223,12 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	//Infos supplémentaire sur le thread
 	new_thread->to_clean = false;
 	new_thread->is_joining = false;
-	new_thread->id_joining = -1;
+	new_thread->joiner = NULL;
 
 	//Configure l'argument que l'on va donner à thread_catch_return qui exécutera start_routine
 	new_thread->cr.function = start_routine;
 	new_thread->cr.arg = arg;
+	new_thread->id_joining = -1;
 
 	//Enregistre la pile
 	new_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(new_thread->ctx.uc_stack.ss_sp, new_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
@@ -245,6 +253,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 
 	__sync_add_and_fetch(&thread_count, 1);
 
+	htable__insert_int(all_thread, new_thread->id, new_thread);
 	//new_thread correspond au thread courant
 	mutex_lock(&runqueue_mutex);
 	list__add_end(runqueue, new_thread);
@@ -289,11 +298,10 @@ void thread_schedul()
 	//If the current thread is not finish, we push him back into the runqueu
 	if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->to_clean)
 	{
-
 		//So the current thread is no more active which mean less deadlock with the join
 		//The join will hopefully no see it
 		//the return value is already in the return table
-		CURRENT_THREAD = NULL;
+		htable__remove_int(all_thread, CURRENT_CORE.previous->id);
 
 		//Bring back in the runqueu threads that have joined the current_thread
 		put_back_joining_thread_of(CURRENT_CORE.previous);
@@ -338,8 +346,6 @@ int thread_yield(void)
 {
 	if(thread_count != 0)
 	{
-		if(get_idx_core() == 0)
-			print_core_info();
 		thread_schedul();
 	}
 	return 0;
@@ -347,9 +353,6 @@ int thread_yield(void)
 
 int thread_join(thread_t thread, void **retval)
 {
-	bool found = false;
-	int i;
-	thread_u *th = NULL;
 	int id_core = get_idx_core();
 	if(CURRENT_THREAD == NULL || CURRENT_THREAD->id == thread)
 		return -1;
@@ -357,71 +360,13 @@ int thread_join(thread_t thread, void **retval)
 
 	//Check if the thread exist in the runqueu
 	//Put also join_queue_mutex because if put_back_joining_thread_of is called after we've checked it could be a problem
-	mutex_lock(&join_queue_mutex);
-	mutex_lock(&runqueue_mutex);
-
-	//Check on current working thread
-	for(i = 0; found == false && i < get_number_of_core(); ++i)
-	{
-	  thread_u* tmp = core[i].current; // XXX What happens if tmp gets freed now ?
-		if(i != id_core && tmp != NULL && tmp->id == thread)
-			found = true;
-	}
-
-	//Check on the runqueue
-	if(!found)
-	{
-		list__for_each(runqueue, th)
-		{
-			if(th->id == thread)
-			{
-				found = true;
-				break;
-			}
-		}
-	}
-
-	//Do not move up the unlock, because other are less likely to change their current
-	mutex_unlock(&runqueue_mutex);
-
-	//check on the join_queue
-	if(!found)
-	{
-		list__for_each(join_queue, th)
-		{
-			if(th->id == thread)
-			{
-				found = true;
-				break;
-			}
-		}
-	}
-
-	//If the thread isn't in the runqueu it is probably ended
-	if(!found)
-	{
-		mutex_unlock(&join_queue_mutex);
-		if(retval != NULL)		//If the thread is already finish, no need to wait and get its return value
-		{
-			*retval = htable__find_int(return_table, thread);
-
-			//If a return value, delete it like pthread do
-			if(*retval != NULL)
-				htable__remove_int(return_table, thread);
-		}
-		return 0;
-	}
-
+	
 	//Find the list of all the threads joining thread
-	CURRENT_THREAD->id_joining = thread;
 	CURRENT_THREAD->is_joining = true;
-	list__add_front(join_queue, CURRENT_THREAD);
+	CURRENT_THREAD->id_joining = thread;
 
 	//Put information for the scheduler so he will know how to deal with it
 	FPRINTF("%d join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
-
-	//Plan to release the lock once we are finished with the current stack
-	CURRENT_CORE.unlock_join_queue = true;
 
 	//switch of process
 	thread_schedul();
@@ -460,35 +405,21 @@ void thread_exit(void *retval)
 	//Insert retval into the return_table
 	if(retval != NULL)
 		htable__insert_int(return_table, CURRENT_THREAD->id, retval);
-
 	//Finish exiting the thread by calling function to clean the thread
 	thread_end_thread();
 }
 
 void put_back_joining_thread_of(thread_u * thread)
 {
-	mutex_lock(&join_queue_mutex);
-	mutex_lock(&runqueue_mutex);
-
 	//Get the join_list to know all the thread joining thread
 	thread_u *tmp = NULL;
 	FPRINTF("Put back joiner of %d on core %d\n", thread->id, get_idx_core());
-
-	//Put every joining thread back into the runqueu
-	list__for_each(join_queue, tmp)
+	if(thread->joiner != NULL)
 	{
-		if(tmp->id_joining == thread->id)
-		{
-			list__remove(join_queue);
-			tmp->is_joining = false;
-			tmp->id_joining = -1;
-			list__add_end(runqueue, tmp);
-			sem_post(semaphore_runqueue);
-			break;
-		}
+		thread->joiner->is_joining = false;
+		thread->joiner->id_joining = -1;
+		add_thread_to_runqueue(thread->joiner);
 	}
-	mutex_unlock(&join_queue_mutex);
-	mutex_unlock(&runqueue_mutex);
 }
 
 void thread_catch_return(void *info)
@@ -556,15 +487,14 @@ void thread_change(int id_core)
 	{
 		add_thread_to_runqueue(CURRENT_CORE.previous);
 	}
+	else if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
+	{
+		void* found = htable__find_and_apply(all_thread, (void*)(long long int)CURRENT_CORE.previous->id_joining, (void (*)(void*))apply_join);
+		if(!found)
+			add_thread_to_runqueue(CURRENT_CORE.previous);
+	}
 	CURRENT_THREAD = NULL;
 	CURRENT_CORE.previous = NULL;
-
-	//Unlock all ressources the current thread locked in the API
-	if(CURRENT_CORE.unlock_join_queue)
-		mutex_unlock(&join_queue_mutex);
-
-	//Now they are unlock, it's good
-	CURRENT_CORE.unlock_join_queue = false;
 
 	//Get the next thread from the runqueu
 	UNIGNORE_SIGNAL(SIGALRM);
@@ -573,17 +503,11 @@ void thread_change(int id_core)
 	sem_wait(semaphore_runqueue);
 	IGNORE_SIGNAL(SIGALRM);
 
-/*	//Lock the runqueu so even if there is many thread in the runqueu, only one will modify the runqueu
-	pthread_spin_lock(&runqueue_mutex);
-	CURRENT_THREAD = list__remove_front(runqueue);
-	pthread_spin_unlock(&runqueue_mutex);*/
-
 	CURRENT_THREAD = get_thread_from_runqueue();
 
 	//Then switch to the thread context. No need to use swapcontext because the current context is not useful anymore
 	if(CURRENT_THREAD != NULL)
 	{
-		//FIXME WHAT HAPPEN IF A SIG COME RIGHT NOW
 		FPRINTF("Start %d on core %d\n", CURRENT_THREAD->id, id_core);
 		setcontext(&(CURRENT_THREAD->ctx));
 	}
@@ -633,8 +557,8 @@ void thread_init_i(int i, thread_u * current_thread)
 __attribute((destructor))
 static void ending_process()
 {
-	if(core != NULL)
-		setcontext(&(ending_thread.ctx));
+	/*if(core != NULL)*/
+		/*setcontext(&(ending_thread.ctx));*/
 }
 
 void free_ressources(void)
@@ -645,15 +569,13 @@ void free_ressources(void)
 	//Free every thing
 	list__destroy(runqueue);
 	mutex_destroy(&runqueue_mutex);
-	mutex_destroy(&join_queue_mutex);
 	sem_close(semaphore_runqueue);
 	sem_destroy(semaphore_runqueue);
 
-	//There is only one thread left, so join_table is empty
-	list__destroy(join_queue);
-
+	//XXX destroy my id into all_thread ?
 	htable__remove_int(return_table, CURRENT_THREAD->id);
 	htable__destroy(return_table);
+	htable__destroy(all_thread);
 	free(CURRENT_THREAD);
 	for(i = 0; i < get_number_of_core(); ++i)
 	{
@@ -662,4 +584,11 @@ void free_ressources(void)
 	}
 	free(core);
 	FPRINTF("Finished by core %d\n", id_core);
+}
+
+void apply_join(thread_u* thread)
+{
+	int id_core = get_idx_core();
+	if(thread->joiner == NULL)
+		thread->joiner = CURRENT_CORE.previous;
 }

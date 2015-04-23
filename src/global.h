@@ -25,6 +25,7 @@ typedef struct thread_u
 	bool is_joining;
 	int valgrind_stackid;
 	catch_return cr;
+	struct thread_u* joiner;
 	int id_joining;
 } thread_u;
 typedef struct core_information

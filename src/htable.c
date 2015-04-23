@@ -194,6 +194,28 @@ void *htable__find(htable * h_table, void *key)
 	return NULL;
 }
 
+void* htable__find_and_apply(htable* h_table, void* key, void(*f)(void*))
+{
+	int idx = h_table->hash(key);
+	htable_node *node = NULL;
+	if(h_table->use_lock)
+		mutex_lock(&(h_table->locks[idx]));
+
+	list__for_each(h_table->table[idx], node)
+	{
+		if(h_table->cmp(node->key, key))
+		{
+			f(node->data);
+			if(h_table->use_lock)
+				mutex_unlock(&(h_table->locks[idx]));
+			return node->data;
+		}
+	}
+	if(h_table->use_lock)
+		mutex_unlock(&(h_table->locks[idx]));
+	return NULL;
+}
+ 
 void htable__destroy(htable * h_table)
 {
 	int i;

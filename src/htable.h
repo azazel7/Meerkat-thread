@@ -35,7 +35,7 @@ void htable__insert(htable *h_table, void* key, void *data);
  * @brief Removes an element from the hash table.
  * The elements have to exist in the hash table.
  */
-void htable__remove(htable* h_table, void*);
+void* htable__remove(htable* h_table, void*);
 #define htable__remove_int(h_table, key) htable__remove(h_table, (void*)(long int)key)
 
 /**

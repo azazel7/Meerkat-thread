@@ -24,6 +24,7 @@ extern List *runqueue;
 extern mutex_t runqueue_mutex;
 extern sem_t *semaphore_runqueue;
 extern core_information *core;
+extern int number_of_core;
 
 thread_u *get_thread_from_runqueue(int id_core)
 {
@@ -33,7 +34,7 @@ thread_u *get_thread_from_runqueue(int id_core)
 		sem_wait(semaphore_runqueue);
 		//Lock the runqueue so even if there is many thread in the runqueue, only one will modify the runqueue
 		mutex_lock(&runqueue_mutex);
-		int to_get = (list__get_size(runqueue) / 4);	
+		int to_get = (list__get_size(runqueue) / number_of_core);	
 		if(to_get == 0)
 			to_get = 1;
 		if(to_get > MAX_SIZE_LOCAL_RUNQUEUE)
@@ -51,7 +52,7 @@ thread_u *get_thread_from_runqueue(int id_core)
 
 void add_thread_to_runqueue(int id_core, thread_u * thread)
 {
-	if(list__get_size(CURRENT_CORE.runqueue) > MAX_SIZE_LOCAL_RUNQUEUE)
+	if(list__get_size(CURRENT_CORE.runqueue) > MAX_SIZE_LOCAL_RUNQUEUE || list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
 	{
 		mutex_lock(&runqueue_mutex);
 		list__add_end(runqueue, thread);

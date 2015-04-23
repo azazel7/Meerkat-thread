@@ -45,6 +45,7 @@ static htable *return_table = NULL;
 static int global_id = 0;
 
 core_information *core = NULL;
+int number_of_core = 1;
 
 //TODO ajouter des verrous pour toutes les ressources partagées
 //FIXME Les contexte partagent les buffer de printf !!!!!!!!!
@@ -74,17 +75,11 @@ void thread_catch_return(void *info);
 //Initialise les variables globales et créer un thread pour le context actuel en plus
 int thread_init(void);
 
-//Renvois le nombre de cœurs de la machine
-int get_number_of_core(void);
-
 //Renvois l'id du cœur qui s'exécute
 int get_idx_core(void);
 
 //Gestionnaire pour ignorer un signal
 void empty_handler(int s);
-
-//Cette ne doit être appelé que par un unique core (pthread) à la fois
-void print_core_info(void);
 
 //Effectue le changement de context. Elle s'exécute sur une pile spéciale située dans chaque cœur.
 void thread_change(int id_core);
@@ -103,10 +98,12 @@ int thread_init(void)
 	int i;
 	FPRINTF("First\n");
 
+	number_of_core = 4;	//sysconf(_SC_NPROCESSORS_ONLN);
+
 	//Ajoute les gestionnaire de signaux
 	signal(SIGALRM, thread_handler);
 	signal(SIGVTALRM, thread_handler);
-	core = malloc(sizeof(core_information) * get_number_of_core());
+	core = malloc(sizeof(core_information) * number_of_core);
 	if(core == NULL)
 		return -1;
 
@@ -119,10 +116,7 @@ int thread_init(void)
 	mutex_init(&runqueue_mutex);
 	mutex_init(&join_queue_mutex);
 
-	//Créer le sémaphore
-	semaphore_runqueue = sem_open("runqueue", O_CREAT, 0600, 0);
-
-	//Si le sémaphore existait déjà, on l'initialise à 0
+	//Initialise et créer la sémaphore
 	sem_init(semaphore_runqueue, 0, 0);
 
 	//Prépare le temps pour le timer
@@ -174,7 +168,7 @@ int thread_init(void)
 	current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
 	
 	//Initialise les thread pthread (vue comme des cœurs par la suite pour des notions de sémantique)
-	for(i = 0; i < get_number_of_core(); ++i)
+	for(i = 0; i < number_of_core; ++i)
 		thread_init_i(i, current_thread);
 
 	//Activer l'alarm et active l'interval (si interval il y a)
@@ -314,13 +308,11 @@ void thread_handler(int sig)
 	int i;
 	int id_core = get_idx_core();
 	printf("Alarm\n");
-	if(id_core == 0)
-		print_core_info();
 
 	//TODO ré-armer le signal (mais pas sûr)
 	//If we are the first core, we are the only one to receive this signal so warn the others
 	if(id_core == 0)
-		for(i = 1; i < get_number_of_core(); ++i)
+		for(i = 1; i < number_of_core; ++i)
 			pthread_kill(core[i].thread, SIGALRM);
 
 	//If the current core doesn't execute something, it's sleeping, so it already is in thread_schedul
@@ -360,13 +352,7 @@ int thread_join(thread_t thread, void **retval)
 
 	//We are back, just check the return value of thread and go back to work
 	if(retval != NULL)
-	{
-		*retval = htable__find_int(return_table, thread);
-
-		//If we found the return value, delete it (like pthread)
-		if(*retval != NULL)
-			htable__remove_int(return_table, thread);
-	}
+		*retval = htable__remove_int(return_table, thread);
 	return 0;
 }
 
@@ -416,16 +402,11 @@ void thread_catch_return(void *info)
 	thread_exit(ret);
 }
 
-int get_number_of_core(void)
-{
-	return 4;					//sysconf(_SC_NPROCESSORS_ONLN);
-}
-
 int get_idx_core(void)
 {
-	int i, size = get_number_of_core();
+	int i;
 	pthread_t self = pthread_self();
-	for(i = 0; i < size; ++i)
+	for(i = 0; i < number_of_core; ++i)
 		if(self == core[i].thread)
 			return i;
 	return -1;
@@ -436,49 +417,23 @@ void empty_handler(int s)
 	printf("Call in empty handler core %d\n", get_idx_core());
 }
 
-void print_core_info(void)
-{
-#ifdef DEBUG
-	int i;
-	int sum = 0;
-	for(i = 0; i < get_number_of_core() * 4 + 1; ++i)
-		FPRINTF("-");
-	FPRINTF("\n");
-	for(i = 0; i < get_number_of_core(); ++i)
-		sum += FPRINTF("| %d ", i);
-	sum += FPRINTF("|\n");
-	for(i = 0; i < sum - 1; ++i)
-		FPRINTF("-");
-	FPRINTF("\n");
-	for(i = 0; i < get_number_of_core(); ++i)
-		if(core[i].current == NULL)
-			FPRINTF("| p ");
-		else
-			FPRINTF("| %d ", core[i].current->id);
-	FPRINTF("|\n");
-	for(i = 0; i < sum - 1; ++i)
-		FPRINTF("-");
-	FPRINTF("\n");
-#endif
-}
-
 void thread_change(int id_core)
 {
-	if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->to_clean)
+	if(CURRENT_THREAD != NULL && CURRENT_THREAD->to_clean)
 	{
-		FPRINTF("Free %d on core %d\n", CURRENT_CORE.previous->id, id_core);
-		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
-		free(CURRENT_CORE.previous);
+		FPRINTF("Free %d on core %d\n", CURRENT_THREAD->id, id_core);
+		VALGRIND_STACK_DEREGISTER(CURRENT_THREAD->valgrind_stackid);
+		free(CURRENT_THREAD);
 	}
-	else if(CURRENT_CORE.previous != NULL && !CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
+	else if(CURRENT_THREAD != NULL && !CURRENT_THREAD->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
 	{
-		add_thread_to_runqueue(id_core, CURRENT_CORE.previous);
+		add_thread_to_runqueue(id_core, CURRENT_THREAD);
 	}
-	else if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
+	else if(CURRENT_THREAD != NULL && CURRENT_THREAD->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
 	{
-		void* found = htable__find_and_apply(all_thread, (void*)(long long int)CURRENT_CORE.previous->id_joining, (void (*)(void*))apply_join);
+		void* found = htable__find_and_apply(all_thread, (void*)(long long int)CURRENT_THREAD->id_joining, (void (*)(void*))apply_join);
 		if(!found)
-			add_thread_to_runqueue(id_core, CURRENT_CORE.previous);
+			add_thread_to_runqueue(id_core, CURRENT_THREAD);
 	}
 	CURRENT_THREAD = NULL;
 	CURRENT_CORE.previous = NULL;
@@ -559,7 +514,7 @@ void free_ressources(void)
 	htable__destroy(return_table);
 	htable__destroy(all_thread);
 	free(CURRENT_THREAD);
-	for(i = 0; i < get_number_of_core(); ++i)
+	for(i = 0; i < number_of_core; ++i)
 	{
 		while(core[i].previous != NULL && core[i].current != NULL);
 		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);

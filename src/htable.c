@@ -104,18 +104,20 @@ void htable__insert(htable * h_table, void *key, void *data)
 		h_table->size++;
 }
 
-void htable__remove(htable * h_table, void *key)
+void* htable__remove(htable * h_table, void *key)
 {
 	int idx = h_table->hash(key);
 	List *list = h_table->table[idx];
 	htable_node *node = NULL;
 	if(h_table->use_lock)
 		mutex_lock(&(h_table->locks[idx]));
+	void* tmp = NULL;
 	list__for_each(list, node)
 	{
 		if(h_table->cmp(node->key, key))
 		{
 			list__remove(list);
+			tmp = node->data;
 			free(node);
 			if(h_table->use_lock)
 				__sync_sub_and_fetch(&h_table->size, 1);
@@ -126,6 +128,7 @@ void htable__remove(htable * h_table, void *key)
 	}
 	if(h_table->use_lock)
 		mutex_unlock(&(h_table->locks[idx]));
+	return tmp;
 }
 
 int htable__size(htable * h_table)

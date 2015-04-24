@@ -130,25 +130,9 @@ int thread_init(void)
 	timeslice.it_interval.tv_sec = 0;
 	timeslice.it_interval.tv_usec = 0;
 
-	if(getcontext(&(ending_thread.ctx)) < 0)
-		exit(-1);
-	//thread_count == 0 => slot == 0
-	ending_thread.ctx.uc_stack.ss_sp = ending_thread.stack;
-	ending_thread.ctx.uc_stack.ss_size = sizeof(ending_thread.stack);
-	ending_thread.ctx.uc_link = NULL;
-
-	//Information sur le thread pour l'api
-	ending_thread.to_clean = false;
-	ending_thread.is_joining = false;
-
-	//Un seul thread pour le moment, donc pas besoin de verrou
-	ending_thread.id = global_id++;
-	VALGRIND_STACK_REGISTER(ending_thread.ctx.uc_stack.ss_sp, ending_thread.ctx.uc_stack.ss_sp + SIZE_STACK);
-
-	//créer le contexte pour le contexte de netoyage
-	makecontext(&(ending_thread.ctx), free_ressources, 1, NULL);
 	++thread_count;
-	thread_u *current_thread = (thread_u *) allocator_malloc(ALLOCATOR_THREAD);
+	allocator_init();
+	thread_u *current_thread = (thread_u *) malloc(sizeof(thread_u));
 	if(current_thread == NULL)
 	{
 		thread_count = 0;
@@ -165,7 +149,6 @@ int thread_init(void)
 	current_thread->cr.arg = NULL;
 	current_thread->id_joining = -1;
 
-	htable__insert_int(all_thread, current_thread->id, current_thread);
 
 	//Enregistre la pile dans valgrind
 	current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
@@ -173,6 +156,8 @@ int thread_init(void)
 	//Initialise les thread pthread (vue comme des cœurs par la suite pour des notions de sémantique)
 	for(i = 0; i < number_of_core; ++i)
 		thread_init_i(i, current_thread);
+
+	htable__insert_int(all_thread, current_thread->id, current_thread);
 
 	//Activer l'alarm et active l'interval (si interval il y a)
 	/*
@@ -186,6 +171,9 @@ int thread_init(void)
 
 int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *arg)
 {
+	if(thread_count == 0)
+		if(thread_init() != 0)
+			return -1;
 	//Alloue l'espace pour le thread
 	thread_u *new_thread = (thread_u *) allocator_malloc(ALLOCATOR_THREAD);
 	if(new_thread == NULL)
@@ -219,13 +207,6 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 
 	//créer le contexte
 	makecontext(&(new_thread->ctx), (void (*)())thread_catch_return, 1, &new_thread->cr);
-	if(thread_count == 0)
-		if(thread_init() != 0)
-		{
-			VALGRIND_STACK_DEREGISTER(new_thread->valgrind_stackid);
-			free(new_thread);
-			return -1;
-		}
 
 	//On met l'id avec global_id après un eventuel appel à thread_init. (Ce qui garanti d'avoir toujours la même répartion des id
 	new_thread->id = __sync_fetch_and_add(&global_id, 1);
@@ -394,7 +375,7 @@ void put_back_joining_thread_of(thread_u * thread)
 	{
 		thread->joiner->is_joining = false;
 		thread->joiner->id_joining = -1;
-		add_thread_to_runqueue(get_idx_core(), thread->joiner);
+		add_begin_thread_to_runqueue(get_idx_core(), thread->joiner);
 	}
 }
 

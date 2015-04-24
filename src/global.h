@@ -54,3 +54,5 @@ typedef struct core_information
 	int valgrind_stackid;
 	List* runqueue;
 } core_information;
+
+int get_idx_core(void);

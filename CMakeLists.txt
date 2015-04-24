@@ -2,8 +2,12 @@ project (Meerkat)
 
 cmake_minimum_required(VERSION 2.8)
 
+#Pour glib mais pas vraiment portable
+include_directories(/usr/include/glib-2.0)
+include_directories(/usr/lib/glib-2.0/include)
+
 #Flag pour la compilation
-set(CMAKE_CXX_FLAGS "-Wall")
+set(CMAKE_C_FLAGS "-Wall")
 
 set(SRC_DIR "src")
 set(TST_DIR "tst")
@@ -27,17 +31,17 @@ endforeach()
 list(REMOVE_DUPLICATES Plankton_INCLUDE_DIRS)
 
 #Ajout d'un define pour éliminer des informations de debug
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -Wall")
 
 #Ajoute le repertoire qui contiendra libmeerkat.so
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/build)
 #Librairie utilisé pour notre bibli
 add_library(meerkat SHARED ${Plankton_SOURCES})
 #Link pthread avec meerkat
-target_link_libraries(meerkat pthread)
+target_link_libraries(meerkat pthread glib-2.0)
 #Exécutable pour les tests unitaires (essentiellement sur les listes et les htable)
 add_executable (Meerkat_test ${TST_SOURCE})
-target_link_libraries(Meerkat_test pthread)
+target_link_libraries(Meerkat_test pthread glib-2.0)
 
 #Produit tous les exemples
 foreach(exempleFile ${exemple_source})

@@ -10,7 +10,7 @@ void list__init_iterator(List* list)
 }
 void list__add_front(List* list, void* data)
 {
-	List_node* new_node = malloc(sizeof(List_node));
+	List_node* new_node = allocator_malloc(ALLOCATOR_LIST_NODE);
 	if(new_node == NULL)
 		return;
 	new_node->data = data;
@@ -33,7 +33,7 @@ void* list__remove_front(List* list)
 	//If the iterator was on the head, put it on the new head
 	if(list->iterator == to_free)
 		list->iterator = list->head;
-	free(to_free);
+	allocator_free(ALLOCATOR_LIST_NODE, to_free);
 	--list->size;
 	return tmp;
 }
@@ -99,7 +99,7 @@ void list__destroy(List* list)
 	{
 		List_node* tmp = list->head;
 		list->head = list->head->next;
-		free(tmp);
+		allocator_free(ALLOCATOR_LIST_NODE, tmp);
 	}
 	free(list);
 }
@@ -129,7 +129,7 @@ static void* list__remove_iterator(List* list, bool on_for_each)
 	prev->next = next;
 	if(next != NULL)
 		next->previous = prev;
-	free(to_free);
+	allocator_free(ALLOCATOR_LIST_NODE, to_free);
 	//Place the next iterator
 	list->iterator = prev;
 	--list->size;
@@ -158,7 +158,7 @@ void list__add_end(List* list, void* data)
 	{
 		list->iterator = list->iterator->next;
 	}
-	List_node* new_node = malloc(sizeof(List_node));
+	List_node* new_node = allocator_malloc(ALLOCATOR_LIST_NODE);
 	if(new_node == NULL)
 		return;
 	new_node->data = data;
@@ -183,7 +183,7 @@ void* list__remove_end(List* list)
 		tmp->previous->next = NULL;
 	else
 		list->head = NULL;
-	free(tmp);
+	allocator_free(ALLOCATOR_LIST_NODE, tmp);
 	--list->size;
 	return ret;
 }

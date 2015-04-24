@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "htable.h"
+#include "allocator.h"
 
 static int htable__hash_int(void *);
 static bool htable__cmp_int(void *, void *);
@@ -66,7 +67,7 @@ bool htable__contain(htable * h_table, void *key)
 void htable__insert(htable * h_table, void *key, void *data)
 {
 	int idx = h_table->hash(key);
-	htable_node *node = malloc(sizeof(htable_node));
+	htable_node *node = allocator_malloc(ALLOCATOR_HTABLE_NODE);
 	if(node == NULL)
 	{
 		fprintf(stderr, "Memory out of stock\n");
@@ -90,6 +91,7 @@ void* htable__remove(htable * h_table, void *key)
 	int idx = h_table->hash(key);
 	List *list = h_table->table[idx];
 	htable_node *node = NULL;
+	bool found = false;
 	if(h_table->use_lock)
 		mutex_lock(&(h_table->locks[idx]));
 	void* tmp = NULL;
@@ -99,7 +101,7 @@ void* htable__remove(htable * h_table, void *key)
 		{
 			list__remove(list);
 			tmp = node->data;
-			free(node);
+			found = true;
 			if(h_table->use_lock)
 				__sync_sub_and_fetch(&h_table->size, 1);
 			else
@@ -109,6 +111,8 @@ void* htable__remove(htable * h_table, void *key)
 	}
 	if(h_table->use_lock)
 		mutex_unlock(&(h_table->locks[idx]));
+	if(found)
+		allocator_free(ALLOCATOR_HTABLE_NODE, node);
 	return tmp;
 }
 
@@ -208,7 +212,7 @@ void htable__destroy(htable * h_table)
 	{
 		if(h_table->use_lock)
 			mutex_lock(&(h_table->locks[i]));
-		list__for_each(h_table->table[i], node) free(node);
+		list__for_each(h_table->table[i], node) allocator_free(ALLOCATOR_HTABLE_NODE, node);
 		list__destroy(h_table->table[i]);
 		if(h_table->use_lock)
 			mutex_unlock(&(h_table->locks[i]));

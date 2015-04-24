@@ -20,7 +20,6 @@ void allocator_init(void)
 			trash[i][j] = NULL;
 	}
 }
-
 __attribute__((destructor))
 void allocator_destroy(void)
 {

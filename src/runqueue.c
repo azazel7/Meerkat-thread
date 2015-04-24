@@ -52,7 +52,7 @@ thread_u *get_thread_from_runqueue(int id_core)
 
 void add_thread_to_runqueue(int id_core, thread_u * thread)
 {
-	if(list__get_size(CURRENT_CORE.runqueue) > MAX_SIZE_LOCAL_RUNQUEUE || list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
+	if(list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
 	{
 		mutex_lock(&runqueue_mutex);
 		list__add_end(runqueue, thread);
@@ -64,6 +64,7 @@ void add_thread_to_runqueue(int id_core, thread_u * thread)
 		list__add_end(CURRENT_CORE.runqueue, thread);
 	}
 }
+
 void add_begin_thread_to_runqueue(int id_core, thread_u * thread)
 {
 	if(list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)

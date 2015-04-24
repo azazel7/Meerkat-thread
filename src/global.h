@@ -17,11 +17,6 @@
 #define FPRINTF(fmt, ...) do{}while(0)
 #endif
 
-typedef struct catch_return
-{
-	void *(*function) (void *);
-	void *arg;
-} catch_return;
 typedef struct thread_u
 {
 	int id;
@@ -38,7 +33,6 @@ typedef struct thread_u
 	//Information for the scheduler
 	bool is_joining;
 	int valgrind_stackid;
-	catch_return cr;
 	struct thread_u* joiner;
 	int id_joining;
 } thread_u;

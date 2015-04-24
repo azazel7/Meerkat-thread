@@ -28,9 +28,6 @@ sem_t *semaphore_runqueue = NULL;
 //Le nombre de thread lancé. Identique à list__get_size(runqueue).
 static int thread_count = 0;
 
-//Thread pour finir et nettoyer un thread fini
-static thread_u ending_thread;
-
 //Pour le timer, indique l'interval de temps (accédé uniquement par le pthread 0)
 static struct itimerval timeslice;
 
@@ -70,7 +67,7 @@ void thread_schedul(void);
 void put_back_joining_thread_of(thread_u * thread);
 
 //Si la fonction du thread fait un return, thread_catch_return récupérera la valeur et la mettra dans return_table pour que les thread qui join puissent l'avoir
-void thread_catch_return(void *info);
+void thread_catch_return(void *(*function) (void *), void *arg);
 
 //Initialise les variables globales et créer un thread pour le context actuel en plus
 int thread_init(void);
@@ -143,8 +140,6 @@ int thread_init(void)
 	//Un seul thread pour le moment, donc pas besoin de verrou
 	current_thread->id = global_id++;
 	current_thread->ctx.uc_link = NULL;
-	current_thread->cr.function = NULL;
-	current_thread->cr.arg = NULL;
 	current_thread->id_joining = -1;
 
 
@@ -196,15 +191,13 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	new_thread->joiner = NULL;
 
 	//Configure l'argument que l'on va donner à thread_catch_return qui exécutera start_routine
-	new_thread->cr.function = start_routine;
-	new_thread->cr.arg = arg;
 	new_thread->id_joining = -1;
 
 	//Enregistre la pile
 	new_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(new_thread->ctx.uc_stack.ss_sp, new_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
 
 	//créer le contexte
-	makecontext(&(new_thread->ctx), (void (*)())thread_catch_return, 1, &new_thread->cr);
+	makecontext(&(new_thread->ctx), (void (*)())thread_catch_return, 2, start_routine, arg);
 
 	//On met l'id avec global_id après un eventuel appel à thread_init. (Ce qui garanti d'avoir toujours la même répartion des id
 	new_thread->id = __sync_fetch_and_add(&global_id, 1);
@@ -218,11 +211,8 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 
 	htable__insert_int(all_thread, new_thread->id, new_thread);
 	//new_thread correspond au thread courant
-	mutex_lock(&runqueue_mutex);
-	list__add_end(runqueue, new_thread);
-	sem_post(semaphore_runqueue);
+	add_begin_thread_to_runqueue(get_idx_core(), new_thread);
 	FPRINTF("Create new thread %d on core %d\n", new_thread->id, get_idx_core());
-	mutex_unlock(&runqueue_mutex);
 	return 0;
 }
 
@@ -276,7 +266,7 @@ void thread_schedul()
 		//There is no more CURRENT_CORE.previous because we free it
 		current_thread_dead = true;
 	}
-
+	
 	//Switch to the core context so we will be on a new stack
 	if(!current_thread_dead)
 		swapcontext(&(CURRENT_CORE.previous->ctx), &(CURRENT_CORE.ctx));
@@ -315,7 +305,7 @@ int thread_yield(void)
 int thread_join(thread_t thread, void **retval)
 {
 	int id_core = get_idx_core();
-	if(CURRENT_THREAD == NULL || CURRENT_THREAD->id == thread)
+	if(CURRENT_THREAD->id == thread)
 		return -1;
 	FPRINTF("%d try to join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
 
@@ -367,7 +357,6 @@ void thread_exit(void *retval)
 void put_back_joining_thread_of(thread_u * thread)
 {
 	//Get the join_list to know all the thread joining thread
-	thread_u *tmp = NULL;
 	FPRINTF("Put back joiner of %d on core %d\n", thread->id, get_idx_core());
 	if(thread->joiner != NULL)
 	{
@@ -377,11 +366,9 @@ void put_back_joining_thread_of(thread_u * thread)
 	}
 }
 
-void thread_catch_return(void *info)
+void thread_catch_return(void *(*function) (void *), void *arg)
 {
-	catch_return *cr = (catch_return *) info;
-	void *ret = cr->function(cr->arg);
-	thread_exit(ret);
+	thread_exit(function(arg));
 }
 
 int get_idx_core(void)
@@ -501,7 +488,6 @@ static void ending_process()
 
 void free_ressources(void)
 {
-	int id_core = get_idx_core();
 	int i;
 
 	//Free every thing

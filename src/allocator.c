@@ -7,14 +7,11 @@
 #include "htable.h"
 
 static GTrashStack* **trash = NULL;
-static mutex_t trash_mutex[3]; 
 extern int number_of_core;
 
 void allocator_init(void)
 {
 	int i, j;
-	for(i = 0; i < 3; ++i)
-		mutex_init(&trash_mutex[i]);
 	trash = malloc(number_of_core* sizeof(GTrashStack**));
 	for(i = 0; i < number_of_core; ++i)
 	{
@@ -30,22 +27,22 @@ void allocator_destroy(void)
 	if(trash == NULL)
 		return;
 	int i, j;
-	for(i = 0; i < 3; ++i)
+	for(i = 0; i < number_of_core; ++i)
 	{
-		mutex_destroy(&trash_mutex[i]);
-		for(j = 0; j < number_of_core; ++j)
+		for(j = 0; j < 3; ++j)
 		{
 			void* chunk = NULL;
 			do
 			{
-				chunk = g_trash_stack_pop(&trash[j][i]);
+				chunk = g_trash_stack_pop(&trash[i][j]);
 				if(chunk != NULL)
 					free(chunk);
 			} while(chunk != NULL);
 		}
-		//XXX memory leak	
+		free(trash[i]);
 	}
 	free(trash);
+	trash = NULL;
 }
 void* allocator_malloc(int type)
 {
@@ -70,6 +67,11 @@ void* allocator_malloc(int type)
 }
 void allocator_free(int type, void* data)
 {
+	if(trash == NULL)
+	{
+		free(data);
+		return;
+	}
 	int id_core = get_idx_core();
 	g_trash_stack_push(&trash[id_core][type], data);
 }

@@ -37,7 +37,6 @@ static struct itimerval timeslice;
 //Tableau associatif qui répertorie quel thread attend quel autre
 //La clef correspond a l'id du thread attendu et la donnée est la list (de type List*) des threads (des thread_u, pas des id) qui l'attendent
 static htable* all_thread = NULL;
-static mutex_t join_queue_mutex;
 
 //Tableau associatif qui, pour chaque thread fini (clef = id du thread), lui associe sa valeur de retour si elle exist (via un appel à thread_exit)
 static htable *return_table = NULL;
@@ -114,7 +113,6 @@ int thread_init(void)
 
 	//Initialise les mutex
 	mutex_init(&runqueue_mutex);
-	mutex_init(&join_queue_mutex);
 
 	//Créer le sémaphore
 	semaphore_runqueue = sem_open("runqueue", O_CREAT, 0600, 0);
@@ -478,8 +476,27 @@ void thread_init_i(int i, thread_u * current_thread)
 __attribute((destructor))
 static void ending_process()
 {
+	if(core == NULL)
+		return;
 	/*if(core != NULL)*/
 		/*setcontext(&(ending_thread.ctx));*/
+	int i;
+	int id_core = get_idx_core();
+	for(i = 0; i < number_of_core; ++i)
+	{
+		while(core[i].previous != NULL && core[i].current != NULL);
+		list__destroy(core[i].runqueue);
+	}
+	list__destroy(runqueue);
+	sem_close(semaphore_runqueue);
+	sem_destroy(semaphore_runqueue);
+	htable__remove_int(return_table, CURRENT_THREAD->id);
+	htable__destroy(return_table);
+	htable__remove_int(all_thread, CURRENT_THREAD->id);
+	htable__destroy(all_thread);
+	mutex_destroy(&runqueue_mutex);
+	free(CURRENT_THREAD);
+	free(core);
 }
 
 void free_ressources(void)
@@ -488,22 +505,12 @@ void free_ressources(void)
 	int i;
 
 	//Free every thing
-	list__destroy(runqueue);
-	mutex_destroy(&runqueue_mutex);
-	sem_close(semaphore_runqueue);
-	sem_destroy(semaphore_runqueue);
 
 	//XXX destroy my id into all_thread ?
-	htable__remove_int(return_table, CURRENT_THREAD->id);
-	htable__destroy(return_table);
-	htable__destroy(all_thread);
-	free(CURRENT_THREAD);
 	for(i = 0; i < number_of_core; ++i)
 	{
-		while(core[i].previous != NULL && core[i].current != NULL);
 		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
 	}
-	free(core);
 	FPRINTF("Finished by core %d\n", id_core);
 }
 

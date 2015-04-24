@@ -64,3 +64,17 @@ void add_thread_to_runqueue(int id_core, thread_u * thread)
 		list__add_end(CURRENT_CORE.runqueue, thread);
 	}
 }
+void add_begin_thread_to_runqueue(int id_core, thread_u * thread)
+{
+	if(list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
+	{
+		mutex_lock(&runqueue_mutex);
+		list__add_front(runqueue, thread);
+		mutex_unlock(&runqueue_mutex);
+		sem_post(semaphore_runqueue);
+	}
+	else
+	{
+		list__add_front(CURRENT_CORE.runqueue, thread);
+	}
+}

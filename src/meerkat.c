@@ -1,4 +1,3 @@
-#include <ucontext.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,12 +11,14 @@
 #include <valgrind/valgrind.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <glib.h>
 #include "list.h"
 #include "htable.h"
 #include "global.h"
 #include "runqueue.h"
 #include "mutex.h"
 #include "meerkat.h"
+#include "allocator.h"
 
 //La liste de tous les threads lancé.
 List *runqueue = NULL;
@@ -97,7 +98,6 @@ int thread_init(void)
 {
 	int i;
 	FPRINTF("First\n");
-
 	number_of_core = 4;	//sysconf(_SC_NPROCESSORS_ONLN);
 
 	//Ajoute les gestionnaire de signaux
@@ -116,7 +116,10 @@ int thread_init(void)
 	mutex_init(&runqueue_mutex);
 	mutex_init(&join_queue_mutex);
 
-	//Initialise et créer la sémaphore
+	//Créer le sémaphore
+	semaphore_runqueue = sem_open("runqueue", O_CREAT, 0600, 0);
+
+	//Si le sémaphore existait déjà, on l'initialise à 0
 	sem_init(semaphore_runqueue, 0, 0);
 
 	//Prépare le temps pour le timer
@@ -145,7 +148,7 @@ int thread_init(void)
 	//créer le contexte pour le contexte de netoyage
 	makecontext(&(ending_thread.ctx), free_ressources, 1, NULL);
 	++thread_count;
-	thread_u *current_thread = (thread_u *) malloc(sizeof(thread_u));
+	thread_u *current_thread = (thread_u *) allocator_malloc(ALLOCATOR_THREAD);
 	if(current_thread == NULL)
 	{
 		thread_count = 0;
@@ -184,7 +187,7 @@ int thread_init(void)
 int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *arg)
 {
 	//Alloue l'espace pour le thread
-	thread_u *new_thread = (thread_u *) malloc(sizeof(thread_u));
+	thread_u *new_thread = (thread_u *) allocator_malloc(ALLOCATOR_THREAD);
 	if(new_thread == NULL)
 		return -1;
 
@@ -423,7 +426,7 @@ void thread_change(int id_core)
 	{
 		FPRINTF("Free %d on core %d\n", CURRENT_THREAD->id, id_core);
 		VALGRIND_STACK_DEREGISTER(CURRENT_THREAD->valgrind_stackid);
-		free(CURRENT_THREAD);
+		allocator_free(ALLOCATOR_THREAD, CURRENT_THREAD);
 	}
 	else if(CURRENT_THREAD != NULL && !CURRENT_THREAD->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
 	{

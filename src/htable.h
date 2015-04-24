@@ -1,12 +1,25 @@
 #pragma once
 
 #include <stdbool.h>
+#include "mutex.h"
+#include "list.h"
 #define SIZE_HASH_TABLE 30
 
-struct list;
-typedef struct list List;
-struct htable;
-typedef struct htable htable;
+typedef struct node
+{
+	void *data;
+	void *key;
+} htable_node;
+
+typedef struct htable
+{
+	List *table[SIZE_HASH_TABLE];
+	mutex_t locks[SIZE_HASH_TABLE];
+	int (*hash) ();
+	  bool(*cmp) ();
+	bool use_lock;
+	int size;
+} htable;
 
 /**
  * brief Creates a new hash table

@@ -1,25 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "htable.h"
-#include "list.h"
-#include "mutex.h"
-
-typedef struct node
-{
-	void *data;
-	void *key;
-} htable_node;
-
-struct htable
-{
-	List *table[SIZE_HASH_TABLE];
-	mutex_t locks[SIZE_HASH_TABLE];
-	int (*hash) ();
-	  bool(*cmp) ();
-	bool use_lock;
-	int size;
-};
-typedef struct htable htable;
 
 static int htable__hash_int(void *);
 static bool htable__cmp_int(void *, void *);

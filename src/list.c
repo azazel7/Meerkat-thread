@@ -1,5 +1,6 @@
 #include "list.h"
 #include <stdlib.h>
+#include "allocator.h"
 
 static void* list__remove_iterator(List* list, bool on_for_each);
 

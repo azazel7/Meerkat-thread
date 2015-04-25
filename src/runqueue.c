@@ -50,6 +50,32 @@ thread_u *get_thread_from_runqueue(int id_core)
 	return list__remove_front(CURRENT_CORE.runqueue);
 }
 
+thread_u* try_get_thread_from_runqueue(int id_core)
+{
+	if(list__get_size(core[id_core].runqueue) == 0)
+	{
+		int i = 0;
+		if(sem_trywait(semaphore_runqueue) != 0)
+		{
+			return NULL;
+		}
+		//Lock the runqueue so even if there is many thread in the runqueue, only one will modify the runqueue
+		mutex_lock(&runqueue_mutex);
+		int to_get = (list__get_size(runqueue) / number_of_core);	
+		if(to_get == 0)
+			to_get = 1;
+		if(to_get > MAX_SIZE_LOCAL_RUNQUEUE)
+			to_get = MAX_SIZE_LOCAL_RUNQUEUE;
+		for(; i < to_get; ++i)
+		{
+			list__add_end(CURRENT_CORE.runqueue, list__remove_front(runqueue));
+			if(i != 0) //Already done the sem_wait for the first
+				sem_wait(semaphore_runqueue);
+		}
+		mutex_unlock(&runqueue_mutex);
+	}
+	return list__remove_front(CURRENT_CORE.runqueue);
+}
 void add_thread_to_runqueue(int id_core, thread_u * thread)
 {
 	if(list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)

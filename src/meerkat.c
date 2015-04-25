@@ -88,7 +88,7 @@ void free_ressources(void);
 
 void apply_join(thread_u* thread);
 
-void apply_put_back(thread_u* thread);
+void do_maintenance(int id_core);
 
 int thread_init(void)
 {
@@ -266,12 +266,21 @@ void thread_schedul()
 		//There is no more CURRENT_CORE.previous because we free it
 		current_thread_dead = true;
 	}
-	
-	//Switch to the core context so we will be on a new stack
-	if(!current_thread_dead)
-		swapcontext(&(CURRENT_CORE.previous->ctx), &(CURRENT_CORE.ctx));
+	CURRENT_THREAD = try_get_thread_from_runqueue(id_core);
+	if(CURRENT_THREAD == NULL)
+		if(!current_thread_dead)
+			swapcontext(&(CURRENT_CORE.previous->ctx), &(CURRENT_CORE.ctx));
+		else
+			setcontext(&(CURRENT_CORE.ctx));
 	else
-		setcontext(&(CURRENT_CORE.ctx));
+		if(!current_thread_dead)
+			swapcontext(&(CURRENT_CORE.previous->ctx), &(CURRENT_THREAD->ctx));
+		else
+			setcontext(&(CURRENT_THREAD->ctx));
+	id_core = get_idx_core();
+	if(CURRENT_CORE.previous != NULL)
+		do_maintenance(id_core);
+	//Switch to the core context so we will be on a new stack
 	UNIGNORE_SIGNAL(SIGALRM);
 }
 
@@ -309,15 +318,9 @@ int thread_join(thread_t thread, void **retval)
 		return -1;
 	FPRINTF("%d try to join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
 
-	//Check if the thread exist in the runqueu
-	//Put also join_queue_mutex because if put_back_joining_thread_of is called after we've checked it could be a problem
-	
 	//Find the list of all the threads joining thread
 	CURRENT_THREAD->is_joining = true;
 	CURRENT_THREAD->id_joining = thread;
-
-	//Put information for the scheduler so he will know how to deal with it
-	FPRINTF("%d join %d on core %d\n", CURRENT_THREAD->id, thread, id_core);
 
 	//switch of process
 	thread_schedul();
@@ -368,6 +371,9 @@ void put_back_joining_thread_of(thread_u * thread)
 
 void thread_catch_return(void *(*function) (void *), void *arg)
 {
+	int id_core = get_idx_core();
+	if(CURRENT_CORE.previous != NULL)
+		do_maintenance(id_core);
 	thread_exit(function(arg));
 }
 
@@ -388,22 +394,8 @@ void empty_handler(int s)
 
 void thread_change(int id_core)
 {
-	if(CURRENT_THREAD != NULL && CURRENT_THREAD->to_clean)
-	{
-		FPRINTF("Free %d on core %d\n", CURRENT_THREAD->id, id_core);
-		VALGRIND_STACK_DEREGISTER(CURRENT_THREAD->valgrind_stackid);
-		allocator_free(ALLOCATOR_THREAD, CURRENT_THREAD);
-	}
-	else if(CURRENT_THREAD != NULL && !CURRENT_THREAD->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
-	{
-		add_thread_to_runqueue(id_core, CURRENT_THREAD);
-	}
-	else if(CURRENT_THREAD != NULL && CURRENT_THREAD->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
-	{
-		void* found = htable__find_and_apply(all_thread, (void*)(long long int)CURRENT_THREAD->id_joining, (void (*)(void*))apply_join);
-		if(!found)
-			add_thread_to_runqueue(id_core, CURRENT_THREAD);
-	}
+	if(CURRENT_CORE.previous != NULL)
+		do_maintenance(id_core);
 	CURRENT_THREAD = NULL;
 	CURRENT_CORE.previous = NULL;
 
@@ -469,6 +461,10 @@ static void ending_process()
 		/*setcontext(&(ending_thread.ctx));*/
 	int i;
 	int id_core = get_idx_core();
+	htable__remove_int(return_table, CURRENT_THREAD->id);
+	htable__remove_int(all_thread, CURRENT_THREAD->id);
+	thread_u* tmp = CURRENT_THREAD;
+	CURRENT_THREAD = NULL;
 	for(i = 0; i < number_of_core; ++i)
 	{
 		while(core[i].previous != NULL && core[i].current != NULL);
@@ -477,12 +473,10 @@ static void ending_process()
 	list__destroy(runqueue);
 	sem_close(semaphore_runqueue);
 	sem_destroy(semaphore_runqueue);
-	htable__remove_int(return_table, CURRENT_THREAD->id);
 	htable__destroy(return_table);
-	htable__remove_int(all_thread, CURRENT_THREAD->id);
 	htable__destroy(all_thread);
 	mutex_destroy(&runqueue_mutex);
-	free(CURRENT_THREAD);
+	free(tmp);
 	free(core);
 }
 
@@ -497,7 +491,7 @@ void free_ressources(void)
 	{
 		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
 	}
-	FPRINTF("Finished by core %d\n", id_core);
+	FPRINTF("Finished by core %d\n", get_idx_core());
 }
 
 void apply_join(thread_u* thread)
@@ -505,4 +499,24 @@ void apply_join(thread_u* thread)
 	int id_core = get_idx_core();
 	if(thread->joiner == NULL)
 		thread->joiner = CURRENT_CORE.previous;
+}
+
+void do_maintenance(int id_core)
+{
+	if(CURRENT_CORE.previous->to_clean)
+	{
+		FPRINTF("Free %d on core %d\n", CURRENT_CORE.previous->id, id_core);
+		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
+		allocator_free(ALLOCATOR_THREAD, CURRENT_CORE.previous);
+	}
+	else if(!CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
+	{
+		add_thread_to_runqueue(id_core, CURRENT_CORE.previous);
+	}
+	else if(CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.
+	{
+		void* found = htable__find_and_apply(all_thread, (void*)(long long int)CURRENT_CORE.previous->id_joining, (void (*)(void*))apply_join);
+		if(!found)
+			add_thread_to_runqueue(id_core, CURRENT_CORE.previous);
+	}
 }

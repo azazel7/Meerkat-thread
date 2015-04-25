@@ -90,6 +90,7 @@ void apply_join(thread_u* thread);
 
 void do_maintenance(int id_core);
 
+__attribute__((constructor))
 int thread_init(void)
 {
 	int i;
@@ -164,9 +165,6 @@ int thread_init(void)
 
 int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *arg)
 {
-	if(thread_count == 0)
-		if(thread_init() != 0)
-			return -1;
 	//Alloue l'espace pour le thread
 	thread_u *new_thread = (thread_u *) allocator_malloc(ALLOCATOR_THREAD);
 	if(new_thread == NULL)
@@ -211,7 +209,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 
 	htable__insert_int(all_thread, new_thread->id, new_thread);
 	//new_thread correspond au thread courant
-	add_begin_thread_to_runqueue(get_idx_core(), new_thread);
+	add_begin_thread_to_runqueue(get_idx_core(), new_thread, MIDDLE_PRIORITY);
 	FPRINTF("Create new thread %d on core %d\n", new_thread->id, get_idx_core());
 	return 0;
 }
@@ -338,7 +336,7 @@ thread_t thread_self(void)
 		int id_core = get_idx_core();
 		return CURRENT_THREAD->id;
 	}
-	return 1;
+	return 0;
 
 	//Why 1 ? If there is no thread
 	//The created thread will be 2
@@ -365,7 +363,7 @@ void put_back_joining_thread_of(thread_u * thread)
 	{
 		thread->joiner->is_joining = false;
 		thread->joiner->id_joining = -1;
-		add_begin_thread_to_runqueue(get_idx_core(), thread->joiner);
+		add_begin_thread_to_runqueue(get_idx_core(), thread->joiner, HIGH_PRIORITY);
 	}
 }
 
@@ -457,8 +455,6 @@ static void ending_process()
 {
 	if(core == NULL)
 		return;
-	/*if(core != NULL)*/
-		/*setcontext(&(ending_thread.ctx));*/
 	int i;
 	int id_core = get_idx_core();
 	htable__remove_int(return_table, CURRENT_THREAD->id);

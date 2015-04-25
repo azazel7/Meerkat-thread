@@ -91,9 +91,9 @@ void add_thread_to_runqueue(int id_core, thread_u * thread)
 	}
 }
 
-void add_begin_thread_to_runqueue(int id_core, thread_u * thread)
+void add_begin_thread_to_runqueue(int id_core, thread_u * thread, int priority)
 {
-	if(list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
+	if(priority == MIDDLE_PRIORITY && list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
 	{
 		mutex_lock(&runqueue_mutex);
 		list__add_front(runqueue, thread);

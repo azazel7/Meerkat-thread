@@ -18,6 +18,7 @@ bool mutex_lock(mutex_t * mutex)
 	//__sync_lock_test_and_set returns the previous value of mutex, so it should be false if the mutex is not set yet
 	int i = 0;
 	while(__sync_lock_test_and_set(*mutex, true))
+	#ifdef DEBUG
 	{
 		++i;
 		if(i > 20)
@@ -26,6 +27,9 @@ bool mutex_lock(mutex_t * mutex)
 			sched_yield();
 		}
 	}
+	#else
+	;
+	#endif
 	return true;
 }
 

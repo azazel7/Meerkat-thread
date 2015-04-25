@@ -6,6 +6,7 @@
 #include "list.h"
 #include "htable.h"
 
+#define COUNT_DIFFERENT_BLOCK 4
 static GTrashStack* **trash = NULL;
 extern int number_of_core;
 
@@ -15,8 +16,8 @@ void allocator_init(void)
 	trash = malloc(number_of_core* sizeof(GTrashStack**));
 	for(i = 0; i < number_of_core; ++i)
 	{
-		trash[i] = malloc(3 * sizeof(GTrashStack*));
-		for(j = 0; j < 3; ++j)
+		trash[i] = malloc(COUNT_DIFFERENT_BLOCK * sizeof(GTrashStack*));
+		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
 			trash[i][j] = NULL;
 	}
 }
@@ -28,7 +29,7 @@ void allocator_destroy(void)
 	int i, j;
 	for(i = 0; i < number_of_core; ++i)
 	{
-		for(j = 0; j < 3; ++j)
+		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
 		{
 			void* chunk = NULL;
 			do
@@ -59,6 +60,9 @@ void* allocator_malloc(int type)
 			break;
 			case ALLOCATOR_HTABLE_NODE:
 				chunk = malloc(sizeof(htable_node));
+			break;
+			case ALLOCATOR_STACK:
+				chunk = malloc(SIZE_STACK);
 			break;
 		}
 	}

@@ -103,6 +103,7 @@ int thread_init(void)
 	core = malloc(sizeof(core_information) * number_of_core);
 	if(core == NULL)
 		return -1;
+	allocator_init();
 
 	//Initialise les structures dans lesquelles on va ranger les donnée
 	runqueue = list__create();
@@ -127,7 +128,6 @@ int thread_init(void)
 	timeslice.it_interval.tv_usec = 0;
 
 	++thread_count;
-	allocator_init();
 	thread_u *current_thread = (thread_u *) malloc(sizeof(thread_u));
 	if(current_thread == NULL)
 	{
@@ -142,7 +142,7 @@ int thread_init(void)
 	current_thread->id = global_id++;
 	current_thread->ctx.uc_link = NULL;
 	current_thread->id_joining = -1;
-
+	current_thread->stack = malloc(SIZE_STACK);
 
 	//Enregistre la pile dans valgrind
 	current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
@@ -175,10 +175,10 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 		return (free(new_thread), -1);
 
 	//Définie le contexte ctx (où est la pile)
+	new_thread->stack = allocator_malloc(ALLOCATOR_STACK);
 	new_thread->ctx.uc_stack.ss_sp = new_thread->stack;
-
 	//Définie le contexte ctx (la taille de la pile)
-	new_thread->ctx.uc_stack.ss_size = sizeof(new_thread->stack);
+	new_thread->ctx.uc_stack.ss_size = SIZE_STACK;
 
 	//Quel contexte executer quand celui créé sera fini
 	new_thread->ctx.uc_link = NULL; //&ending_thread.ctx;
@@ -503,6 +503,7 @@ void do_maintenance(int id_core)
 	{
 		FPRINTF("Free %d on core %d\n", CURRENT_CORE.previous->id, id_core);
 		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
+		allocator_free(ALLOCATOR_STACK, CURRENT_CORE.previous->stack);
 		allocator_free(ALLOCATOR_THREAD, CURRENT_CORE.previous);
 	}
 	else if(!CURRENT_CORE.previous->is_joining)	//FIXME don't know why, but if you use id_joining, it doesn't work.

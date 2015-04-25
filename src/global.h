@@ -25,7 +25,7 @@ typedef struct thread_u
 	ucontext_t ctx;
 
 	//Stack for the thread
-	char stack[SIZE_STACK];
+	char* stack;
 
 	//Information so the scheduler will know if he must remove the thread
 	bool to_clean;

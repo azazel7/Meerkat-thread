@@ -1,15 +1,11 @@
-On monocore version we can add :
-- Agree with the teacher that we don't need monocore anymore ! 
-	* If he doesn't, make him understand there will be an upraising if he keep thinking that way.
-
 On multi-core version : (The source code seem good now, you can read it safely.)
 - Find a way to kill properly all core (pthread thread)
-- Find how free all global varial after a main return instead of a thread_exit
-- Try to replace mutexs by spin_locks so we will be faster
-	* Try to implement our own mutex, spinlocks and semaphore so we will be faster
-- Change the use of a context in core (a stack for each core)
 - Signal system
 	so a thread will be able to send a signal to another one.
 	like thread_kill(thread_t);
 - Detect a stackoverflow with mprotect
 - Add mutex between thread
+- To go faster
+	* Replace list in htable by balenced tree (log(N))
+	* Change the list so we can read it during a modification (only one) (rwlock)
+	* Replace thread_t into a void* and the joiner will free the dead thread (no more need of htable)

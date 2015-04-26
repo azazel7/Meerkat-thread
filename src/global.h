@@ -16,6 +16,12 @@
 #else
 #define FPRINTF(fmt, ...) do{}while(0)
 #endif
+#define RUNNNING 0
+#define JOINING 1
+#define ZOMBI 2
+#define OTHER 3
+#define GOING_TO_JOIN 4
+#define FINISHED 5
 
 typedef struct thread_u
 {
@@ -27,15 +33,14 @@ typedef struct thread_u
 	//Stack for the thread
 	char* stack;
 
-	//Information so the scheduler will know if he must remove the thread
-	bool to_clean;
-
 	//Information for the scheduler
-	bool is_joining;
+	volatile char state;
 	int valgrind_stackid;
-	struct thread_u* joiner;
-	int id_joining;
+	volatile struct thread_u* joiner;
+	void* return_value;
+	volatile char join_sync;
 } thread_u;
+
 typedef struct core_information
 {
 	pthread_t thread;
@@ -43,10 +48,9 @@ typedef struct core_information
 	thread_u *previous;
 	ucontext_t ctx;
 	char stack[SIZE_STACK];
-	bool unlock_runqueue;
-	bool unlock_join_queue;
 	int valgrind_stackid;
 	List* runqueue;
+	char* stack_to_free;
 } core_information;
 
 int get_idx_core(void);

@@ -8,21 +8,22 @@ static void* func(int *nbb)
 {
 	int nb = *nbb;
 	int i = 1;
-	printf("func%d: started (%d)\n", nb, (int)thread_self());
+	printf("func%d: started (%p)\n", nb, (void*)thread_self());
 	while(i < 7)
 	{
-		printf("while %d\n", (int)thread_self());
+		printf("while %p\n", (void*)thread_self());
 		thread_yield();
 		/*sleep(1);*/
 		++i;
 	}
-	printf("func%d: returning (%d)\n", nb, (int)thread_self());
+	printf("func%d: returning (%p)\n", nb, (void*)thread_self());
 	*nbb *= 3;
 	return (void*)nbb;
 }
 
 int main(int argc, char *argv[])
 {
+	printf("MySelf : %p\n", thread_self());
 	int i = 0, *nb;
 	thread_t thre[SIZE];
 	for(i = 0; i < SIZE; i++)
@@ -36,7 +37,7 @@ int main(int argc, char *argv[])
 	int* value;
 	for(i = 0; i < SIZE; ++i)
 	{
-		printf("Joining %d i'm %d\n", (int)thre[i], (int)thread_self());
+		printf("Joining %p i'm %p\n", (void*)thre[i], (void*)thread_self());
 		thread_join(thre[i], (void**)&value);
 		printf("Result for %d : %d\n", i, *value);
 		free(value);

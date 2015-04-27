@@ -32,6 +32,13 @@ bool mutex_lock(mutex_t * mutex)
 	#endif
 	return true;
 }
+bool mutex_trylock(mutex_t * mutex)
+{
+	//__sync_lock_test_and_set returns the previous value of mutex, so it should be false if the mutex is not set yet
+	if(__sync_lock_test_and_set(*mutex, true))
+		return true;
+	return false;
+}
 
 bool mutex_unlock(mutex_t * mutex)
 {

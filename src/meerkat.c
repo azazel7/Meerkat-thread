@@ -46,9 +46,6 @@ int number_of_core = 1;
 //Gestionnaire des signaux envoyé par l'horloge. Se contente ensuite d'appeler thread_schedul
 void thread_handler(int sig);
 
-//Fonction automatiquement appelé à la fin d'un thread qui se chargera de préparer le netoyage pour le scheduler et qui appelera le scheduler
-void thread_end_thread(void);
-
 //Le scheduler qui se charge de la tambouille pour changer et detruire les threads
 void thread_schedul(void);
 
@@ -196,28 +193,6 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	return 0;
 }
 
-void thread_end_thread()
-{
-	int id_core = get_idx_core();
-	FPRINTF("Exit thread %d on core %d\n", CURRENT_THREAD->id, id_core);
-
-	//Informe the scheduler he will have to clean this thread
-	CURRENT_THREAD->state = FINISHED;
-
-	//One thread less
-	bool is_no_more_thread = __sync_sub_and_fetch(&thread_count, 1) <= 0;
-
-	//If no more thread, we are the last
-	if(is_no_more_thread)
-	{
-		FPRINTF("Finishing by %d on core %d\n", CURRENT_THREAD->id, id_core);
-
-		// On appelle freeRessources afin de libérer les variables globales
-		exit(0);
-	}
-	thread_schedul();
-}
-
 void thread_schedul()
 {
 	IGNORE_SIGNAL(SIGALRM);
@@ -333,7 +308,23 @@ void thread_exit(void *retval)
 	CURRENT_THREAD->return_value = retval;
 	
 	//Finish exiting the thread by calling function to clean the thread
-	thread_end_thread();
+	FPRINTF("Exit thread %d on core %d\n", CURRENT_THREAD->id, id_core);
+
+	//Informe the scheduler he will have to clean this thread
+	CURRENT_THREAD->state = FINISHED;
+
+	//One thread less
+	bool is_no_more_thread = __sync_sub_and_fetch(&thread_count, 1) <= 0;
+
+	//If no more thread, we are the last
+	if(is_no_more_thread)
+	{
+		FPRINTF("Finishing by %d on core %d\n", CURRENT_THREAD->id, id_core);
+
+		// On appelle freeRessources afin de libérer les variables globales
+		exit(0);
+	}
+	thread_schedul();
 }
 
 void put_back_joining_thread_of(volatile thread_u * thread)
@@ -347,7 +338,7 @@ void put_back_joining_thread_of(volatile thread_u * thread)
 		while(thread->joiner == NULL);		
 		while(thread->joiner->state != JOINING);		
 		thread->joiner->state = OTHER;
-		add_begin_thread_to_runqueue(get_idx_core(), thread->joiner, HIGH_PRIORITY);
+		add_begin_thread_to_runqueue(get_idx_core(), (thread_u*)thread->joiner, HIGH_PRIORITY);
 	}
 }
 

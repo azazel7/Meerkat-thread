@@ -7,47 +7,29 @@
 #include "htable.h"
 
 #define COUNT_DIFFERENT_BLOCK 4
-static GTrashStack* **trash = NULL;
+static GTrashStack* trash[COUNT_DIFFERENT_BLOCK] = {NULL};
+static mutex_t trash_mutex[COUNT_DIFFERENT_BLOCK];
 extern int number_of_core;
 
 void allocator_init(void)
 {
-	int i, j;
-	trash = malloc(number_of_core* sizeof(GTrashStack**));
-	for(i = 0; i < number_of_core; ++i)
-	{
-		trash[i] = malloc(COUNT_DIFFERENT_BLOCK * sizeof(GTrashStack*));
-		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
-			trash[i][j] = NULL;
-	}
+	int i;
+	for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)
+		mutex_init(&trash_mutex[i]);
 }
 __attribute__((destructor))
 void allocator_destroy(void)
 {
-	if(trash == NULL)
-		return;
-	int i, j;
-	for(i = 0; i < number_of_core; ++i)
-	{
-		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
-		{
-			void* chunk = NULL;
-			do
-			{
-				chunk = g_trash_stack_pop(&trash[i][j]);
-				if(chunk != NULL)
-					free(chunk);
-			} while(chunk != NULL);
-		}
-		free(trash[i]);
-	}
-	free(trash);
-	trash = NULL;
+	int i;
+	for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)
+		mutex_destroy(&trash_mutex[i]);
 }
 void* allocator_malloc(int type)
 {
-	int id_core = get_idx_core();
-	void* chunk = g_trash_stack_pop(&trash[id_core][type]);
+		
+	mutex_lock(&trash_mutex[type]);
+	void* chunk = g_trash_stack_pop(&trash[type]);
+	mutex_unlock(&trash_mutex[type]);
 	if(chunk == NULL)
 	{
 		switch(type)
@@ -70,12 +52,8 @@ void* allocator_malloc(int type)
 }
 void allocator_free(int type, void* data)
 {
-	if(trash == NULL)
-	{
-		free(data);
-		return;
-	}
-	int id_core = get_idx_core();
-	g_trash_stack_push(&trash[id_core][type], data);
+	mutex_lock(&trash_mutex[type]);
+	g_trash_stack_push(&trash[type], data);
+	mutex_unlock(&trash_mutex[type]);
 }
 

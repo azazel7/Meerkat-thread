@@ -23,7 +23,6 @@ static void* func(int *nbb)
 
 int main(int argc, char *argv[])
 {
-	printf("MySelf : %p\n", thread_self());
 	int i = 0, *nb;
 	thread_t thre[SIZE];
 	for(i = 0; i < SIZE; i++)

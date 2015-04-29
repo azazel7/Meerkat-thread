@@ -16,7 +16,9 @@ bool mutex_lock(mutex_t * mutex)
 {
 
 	//__sync_lock_test_and_set returns the previous value of mutex, so it should be false if the mutex is not set yet
+	#ifdef DEBUG
 	int i = 0;
+	#endif
 	while(__sync_lock_test_and_set(*mutex, true))
 	#ifdef DEBUG
 	{

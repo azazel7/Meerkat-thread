@@ -72,8 +72,6 @@ void thread_init_i(int i, thread_u * current_thread);
 
 void free_ressources(void);
 
-void apply_join(thread_u* thread);
-
 void do_maintenance(int id_core);
 
 __attribute__((constructor))
@@ -81,6 +79,7 @@ int thread_init(void)
 {
 	int i;
 	FPRINTF("First\n");
+	//Compte le nombre de cœurs disponibles
 	number_of_core = 4;	//sysconf(_SC_NPROCESSORS_ONLN);
 
 	//Ajoute les gestionnaire de signaux
@@ -89,6 +88,8 @@ int thread_init(void)
 	core = malloc(sizeof(core_information) * number_of_core);
 	if(core == NULL)
 		return -1;
+
+	//Initialise le système d'allocation
 	allocator_init();
 
 	//Initialise les structures dans lesquelles on va ranger les donnée
@@ -111,19 +112,20 @@ int thread_init(void)
 	timeslice.it_interval.tv_sec = 0;
 	timeslice.it_interval.tv_usec = 0;
 
+	//Créer le thread courant
 	++thread_count;
 	thread_u *current_thread = (thread_u *) malloc(sizeof(thread_u));
 	if(current_thread == NULL)
 	{
-		thread_count = 0;
-		return -1;
+		perror("malloc");
+		exit(EXIT_FAILURE);
 	}
+	
+	//Initialise le thread courant
 	current_thread->state = OTHER;
 	current_thread->joiner = NULL;
 	current_thread->return_value = NULL;
 	current_thread->join_sync = 0;
-
-	//Un seul thread pour le moment, donc pas besoin de verrou
 	current_thread->id = global_id++;
 	current_thread->ctx.uc_link = NULL;
 	current_thread->stack = malloc(SIZE_STACK);
@@ -156,14 +158,13 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	if(getcontext(&(new_thread->ctx)) < 0)
 		return (free(new_thread), -1);
 
-	//Définie le contexte ctx (où est la pile)
+	//Définie le contexte ctx (où est la pile et sa taille)
 	new_thread->stack = allocator_malloc(ALLOCATOR_STACK);
 	new_thread->ctx.uc_stack.ss_sp = new_thread->stack;
-	//Définie le contexte ctx (la taille de la pile)
 	new_thread->ctx.uc_stack.ss_size = SIZE_STACK;
 
 	//Quel contexte executer quand celui créé sera fini
-	new_thread->ctx.uc_link = NULL; //&ending_thread.ctx;
+	new_thread->ctx.uc_link = NULL;
 
 	//Infos supplémentaire sur le thread
 	new_thread->joiner = NULL;
@@ -185,6 +186,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 		//Si l'utilisateur ne veut pas se souvenir du thread, on ne lui dit pas
 		*newthread = new_thread;
 
+	//Ajoute un thread au total
 	__sync_add_and_fetch(&thread_count, 1);
 
 	//new_thread correspond au thread courant
@@ -196,6 +198,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 void thread_schedul()
 {
 	IGNORE_SIGNAL(SIGALRM);
+	//It's volatile to avoid optimization (id_core is compute again later)
 	volatile int id_core = get_idx_core();
 
 	//previous can be NULL when each pthread thread call thread_schedul for the first time
@@ -206,24 +209,29 @@ void thread_schedul()
 	if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->state == FINISHED)
 		put_back_joining_thread_of(CURRENT_CORE.previous);
 
+	//Try to get a thread from the runqueue (return NULL else)
 	CURRENT_THREAD = try_get_thread_from_runqueue(id_core);
 
+	//If there is no thread to execute, switch to an other stack (safe stack) to clean everything
 	if(CURRENT_THREAD == NULL)
 		if(CURRENT_CORE.previous->state != FINISHED)
 			swapcontext(&(CURRENT_CORE.previous->ctx), &(CURRENT_CORE.ctx));
 		else
 			setcontext(&(CURRENT_CORE.ctx));
+	//Else, switch to the thread
 	else
 		if(CURRENT_CORE.previous->state != FINISHED)
 			swapcontext(&(CURRENT_CORE.previous->ctx), &(CURRENT_THREAD->ctx));
 		else
 			setcontext(&(CURRENT_THREAD->ctx));
 
+	//Compute again id_core because we probably change the core since last time
 	id_core = get_idx_core();
+	//Call maintenance if needed. (To clean previous thread, to put in joining mode, ...)
 	if(CURRENT_CORE.previous != NULL)
 		do_maintenance(id_core);
+
 	FPRINTF("Start %d on core %d\n", CURRENT_THREAD->id, id_core);
-	//Switch to the core context so we will be on a new stack
 	UNIGNORE_SIGNAL(SIGALRM);
 }
 
@@ -247,29 +255,29 @@ void thread_handler(int sig)
 
 int thread_yield(void)
 {
-	if(thread_count != 0)
-	{
-		thread_schedul();
-	}
-	return 0;
+	//XXX probably change that by a macro ...
+	thread_schedul();
 }
 
 int thread_join(volatile thread_t thread, void **retval)
 {
 	int id_core = get_idx_core();
+	//If trying to join itself, stop it
 	if(CURRENT_THREAD == thread)
 		return -1;
 	FPRINTF("%d try to join %d on core %d\n", CURRENT_THREAD->id, ((thread_u*)thread)->id, id_core);
 
-	//Find the list of all the threads joining thread
+	//Try to put our value into join_sync if no value yet
 	char old = __sync_val_compare_and_swap(&((thread_u*)thread)->join_sync, 0, 1);
 	if(old == 2)
 	{
+		//If join_sync was 2, it mean the thread we are trying to join is dying. so we wait till is became a zombi
 		FPRINTF("%d wait for %d on core %d\n", CURRENT_THREAD->id, ((thread_u*)thread)->id, id_core);
 		while(((thread_u*)thread)->state != ZOMBI);
 	}
 	else
 	{
+		//If it's our value in join_sync, it's mean we are the first to synchronize so we start to join and switch to an other thread
 		FPRINTF("%d rescheduled on core %d\n", CURRENT_THREAD->id, id_core);
 		((thread_u*)thread)->joiner = CURRENT_THREAD;
 		CURRENT_THREAD->state = GOING_TO_JOIN;
@@ -281,18 +289,15 @@ int thread_join(volatile thread_t thread, void **retval)
 	//We are back, just check the return value of thread and go back to work
 	if(retval != NULL)
 		*retval = ((thread_u*)thread)->return_value;
+	//From now the thread we are joining is dead and its stack has been freed so we free the structure
 	allocator_free(ALLOCATOR_THREAD, thread);
 	return 0;
 }
 
 thread_t thread_self(void)
 {
-	if(thread_count != 0)
-	{
-		int id_core = get_idx_core();
-		return CURRENT_THREAD;
-	}
-	return 0;//FIXME error here !!
+	int id_core = get_idx_core();
+	return CURRENT_THREAD;
 
 	//Why 1 ? If there is no thread
 	//The created thread will be 2
@@ -321,32 +326,41 @@ void thread_exit(void *retval)
 	{
 		FPRINTF("Finishing by %d on core %d\n", CURRENT_THREAD->id, id_core);
 
-		// On appelle freeRessources afin de libérer les variables globales
+		// call freeRessources to free global variable
 		exit(0);
 	}
+	//Or switch to an other thread
 	thread_schedul();
 }
 
 void put_back_joining_thread_of(volatile thread_u * thread)
 {
-	//Get the join_list to know all the thread joining thread
 	FPRINTF("Put back joiner of %d on core %d\n", thread->id, get_idx_core());
+	//Try to put 2 into join_sync
 	char old = __sync_val_compare_and_swap(&thread->join_sync, 0, 2);
+	//if join_sync equal 1 instead, that mean a joiner is coming
 	if(old == 1)
 	{
 		FPRINTF("Wait for joiner of %d on core %d\n", thread->id, get_idx_core());
+		//Wait till the joiner put himself into thread->joiner
 		while(thread->joiner == NULL);		
+		//Wait till the joiner beging JOINING so it will be safe to execute it again
 		while(thread->joiner->state != JOINING);		
+		//Change the state
 		thread->joiner->state = OTHER;
+		//Put it at the beginning of the runqueue and let's die in peace
 		add_begin_thread_to_runqueue(get_idx_core(), (thread_u*)thread->joiner, HIGH_PRIORITY);
 	}
+	//Else, the joiner came first so it's waiting for us. Don't put it into the runqueue and die as quick as you can
 }
 
 void thread_catch_return(void *(*function) (void *), void *arg)
 {
 	int id_core = get_idx_core();
+	//Do a bit of maintenance
 	if(CURRENT_CORE.previous != NULL)
 		do_maintenance(id_core);
+	
 	thread_exit(function(arg));
 }
 
@@ -367,8 +381,11 @@ void empty_handler(int s)
 
 void thread_change(int id_core)
 {
+	//This function is always called on a the safe stack
+	//Do a little maintenance
 	if(CURRENT_CORE.previous != NULL)
 		do_maintenance(id_core);
+	
 	CURRENT_THREAD = NULL;
 	CURRENT_CORE.previous = NULL;
 
@@ -450,22 +467,9 @@ static void ending_process()
 void free_ressources(void)
 {
 	int i;
-
-	//Free every thing
-
-	//XXX destroy my id into all_thread ?
 	for(i = 0; i < number_of_core; ++i)
-	{
 		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
-	}
 	FPRINTF("Finished by core %d\n", get_idx_core());
-}
-
-void apply_join(thread_u* thread)
-{
-	int id_core = get_idx_core();
-	if(thread->joiner == NULL)
-		thread->joiner = CURRENT_CORE.previous;
 }
 
 void do_maintenance(int id_core)
@@ -474,7 +478,9 @@ void do_maintenance(int id_core)
 	{
 		FPRINTF("Free stack of %d on core %d\n", CURRENT_CORE.previous->id, id_core);
 		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
+		//Free the stack
 		allocator_free(ALLOCATOR_STACK, CURRENT_CORE.previous->stack);
+		//And "wait" for a joiner
 		CURRENT_CORE.previous->state = ZOMBI;
 	}
 	else if(CURRENT_CORE.previous->state == GOING_TO_JOIN)	//FIXME don't know why, but if you use id_joining, it doesn't work.

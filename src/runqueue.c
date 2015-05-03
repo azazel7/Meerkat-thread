@@ -76,6 +76,7 @@ thread_u* try_get_thread_from_runqueue(int id_core)
 	}
 	return list__remove_front(CURRENT_CORE.runqueue);
 }
+
 void add_thread_to_runqueue(int id_core, thread_u * thread)
 {
 	if(list__get_size(runqueue) < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)

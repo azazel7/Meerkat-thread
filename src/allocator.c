@@ -4,7 +4,6 @@
 #include "global.h"
 #include "mutex.h"
 #include "list.h"
-#include "htable.h"
 
 #define COUNT_DIFFERENT_BLOCK 4
 static GTrashStack* trash[COUNT_DIFFERENT_BLOCK] = {NULL};
@@ -36,12 +35,6 @@ void* allocator_malloc(int type)
 		{
 			case ALLOCATOR_THREAD:
 				chunk = malloc(sizeof(thread_u));
-			break;
-			case ALLOCATOR_LIST_NODE:
-				chunk = malloc(sizeof(struct list_node));
-			break;
-			case ALLOCATOR_HTABLE_NODE:
-				chunk = malloc(sizeof(htable_node));
 			break;
 			case ALLOCATOR_STACK:
 				chunk = malloc(SIZE_STACK);

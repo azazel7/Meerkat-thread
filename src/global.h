@@ -39,6 +39,7 @@ typedef struct thread_u
 	volatile struct thread_u* joiner;
 	void* return_value;
 	volatile char join_sync;
+	LIST_FIELDS(struct thread_u, runqueue);
 } thread_u;
 
 typedef struct core_information
@@ -49,7 +50,7 @@ typedef struct core_information
 	ucontext_t ctx;
 	char stack[SIZE_STACK];
 	int valgrind_stackid;
-	List* runqueue;
+	LIST_HEAD(thread_u, runqueue);
 	char* stack_to_free;
 } core_information;
 

@@ -12,16 +12,15 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <glib.h>
-#include "list.h"
-#include "htable.h"
+#include <assert.h>
 #include "global.h"
+#include "meerkat.h"
 #include "runqueue.h"
 #include "mutex.h"
-#include "meerkat.h"
 #include "allocator.h"
 
 //La liste de tous les threads lancé.
-List *runqueue = NULL;
+LIST_HEAD(thread_u, runqueue);
 mutex_t runqueue_mutex;
 sem_t *semaphore_runqueue = NULL;
 
@@ -93,7 +92,7 @@ int thread_init(void)
 	allocator_init();
 
 	//Initialise les structures dans lesquelles on va ranger les donnée
-	runqueue = list__create();
+	LIST_HEAD_INIT(runqueue);
 
 	//Initialise les mutex
 	mutex_init(&runqueue_mutex);
@@ -129,7 +128,7 @@ int thread_init(void)
 	current_thread->id = global_id++;
 	current_thread->ctx.uc_link = NULL;
 	current_thread->stack = malloc(SIZE_STACK);
-
+	LIST_INIT(runqueue, current_thread);
 	//Enregistre la pile dans valgrind
 	current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
 	
@@ -171,6 +170,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	new_thread->state = OTHER;
 	new_thread->return_value = NULL;
 	new_thread->join_sync = 0;
+	LIST_INIT(runqueue, new_thread);
 
 	//Enregistre la pile
 	new_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(new_thread->ctx.uc_stack.ss_sp, new_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
@@ -398,7 +398,7 @@ void thread_change(int id_core)
 		FPRINTF("Start %d on core %d\n", CURRENT_THREAD->id, id_core);
 		setcontext(&(CURRENT_THREAD->ctx));
 	}
-	printf("Error CURRENT_THREAD is NULL\n");
+	printf("Error CURRENT_THREAD is NULL (core %d)\n", id_core);
 	exit(0);
 }
 
@@ -407,7 +407,7 @@ void thread_init_i(int i, thread_u * current_thread)
 
 	//Initialise les variable du cœur
 	core[i].previous = NULL;
-	core[i].runqueue = list__create();	
+	LIST_HEAD_INIT(core[i].runqueue);
 	core[i].stack_to_free = NULL;
 	if(getcontext(&(core[i].ctx)) < 0)
 		exit(-1);
@@ -453,9 +453,7 @@ static void ending_process()
 	for(i = 0; i < number_of_core; ++i)
 	{
 		while(core[i].previous != NULL && core[i].current != NULL);
-		list__destroy(core[i].runqueue);
 	}
-	list__destroy(runqueue);
 	sem_close(semaphore_runqueue);
 	sem_destroy(semaphore_runqueue);
 	mutex_destroy(&runqueue_mutex);

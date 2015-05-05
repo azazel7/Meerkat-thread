@@ -39,9 +39,6 @@ link_directories(${CMAKE_CURRENT_SOURCE_DIR}/build)
 add_library(meerkat SHARED ${Plankton_SOURCES})
 #Link pthread avec meerkat
 target_link_libraries(meerkat pthread glib-2.0)
-#Exécutable pour les tests unitaires (essentiellement sur les listes et les htable)
-add_executable (Meerkat_test ${TST_SOURCE})
-target_link_libraries(Meerkat_test pthread glib-2.0)
 
 #Produit tous les exemples
 foreach(exempleFile ${exemple_source})

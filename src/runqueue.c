@@ -91,9 +91,9 @@ thread_u* try_get_thread_from_runqueue(int id_core)
 void add_end(int id_core, thread_u* thread)
 {
 	if(id_core == -1)
-		LIST_APPEND(runqueue, runqueue, thread);
+		LIST_PREPEND(runqueue, runqueue, thread);
 	else
-		LIST_APPEND(runqueue, CURRENT_CORE.runqueue, thread);
+		LIST_PREPEND(runqueue, CURRENT_CORE.runqueue, thread);
 }
 void add_thread_to_runqueue(int id_core, thread_u * thread)
 {

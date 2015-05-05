@@ -3,9 +3,12 @@ On multi-core version : (The source code seem good now, you can read it safely.)
 - Signal system
 	so a thread will be able to send a signal to another one.
 	like thread_kill(thread_t);
-- Detect a stackoverflow with mprotect
 - Add mutex between thread
-- To go faster
-	* Replace list in htable by balenced tree (log(N))
-	* Change the list so we can read it during a modification (only one) (rwlock)
-	* Replace thread_t into a void* and the joiner will free the dead thread (no more need of htable)
+- Repport
+- Find a way in cmake to add flags compilation of glib /!\
+	* Or recreate the trashStack (which is easy I think)
+- Find out why LIST_APPEND of systemd's list is far slower than our list__add_end /!\
+- Profile the application
+	* To know where the application spend all its time
+	* Go faster and better
+

@@ -88,22 +88,28 @@ thread_u* try_get_thread_from_runqueue(int id_core)
 	LIST_REMOVE(runqueue, CURRENT_CORE.runqueue, CURRENT_CORE.runqueue);
 	return tmp;
 }
-
+void add_end(int id_core, thread_u* thread)
+{
+	if(id_core == -1)
+		LIST_APPEND(runqueue, runqueue, thread);
+	else
+		LIST_APPEND(runqueue, CURRENT_CORE.runqueue, thread);
+}
 void add_thread_to_runqueue(int id_core, thread_u * thread)
 {
 	if(runqueue_size < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
 		if(mutex_trylock(&runqueue_mutex))
 		{
-			LIST_APPEND(runqueue, runqueue, thread);
+			add_end(-1, thread);
 			++runqueue_size;
 			mutex_unlock(&runqueue_mutex);
 			sem_post(semaphore_runqueue);
 			
 		}
 		else
-			LIST_APPEND(runqueue, CURRENT_CORE.runqueue, thread);
+			add_end(id_core, thread);
 	else
-		LIST_APPEND(runqueue, CURRENT_CORE.runqueue, thread);
+		add_end(id_core, thread);
 }
 
 void add_begin_thread_to_runqueue(int id_core, thread_u * thread, int priority)

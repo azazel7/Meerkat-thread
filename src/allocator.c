@@ -1,22 +1,22 @@
-#include <glib.h>
 #include <stdlib.h>
 #include "allocator.h"
 #include "global.h"
 #include "mutex.h"
 #include "list.h"
+#include "trash_stack.h"
 
 #define COUNT_DIFFERENT_BLOCK 2
-static GTrashStack*** trash = NULL;
+static trash_stack_t*** trash = NULL;
 static mutex_t** trash_mutex = NULL;
 extern int number_of_core;
 
 void allocator_init(void)
 {
 	int i;
-	trash = malloc(sizeof(GTrashStack**)*number_of_core);
+	trash = malloc(sizeof(trash_stack_t**)*number_of_core);
 	for(i = 0; i < number_of_core; ++i)
 	{
-		trash[i] = malloc(sizeof(GTrashStack*)*COUNT_DIFFERENT_BLOCK);
+		trash[i] = malloc(sizeof(trash_stack_t*)*COUNT_DIFFERENT_BLOCK);
 		int j;
 		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
 		{
@@ -38,28 +38,32 @@ void allocator_destroy(void)
 		int j;
 		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
 		{
-			while((tmp = g_trash_stack_pop(&trash[i][j])) != NULL)
+			while((tmp = trash_stack_pop(&trash[i][j])) != NULL)
 				free(tmp);
 		}
 		free(trash[i]);
 	}
 	free(trash);
 }
+void* my_malloc(int size)
+{
+	return malloc(size);
+}
 void* allocator_malloc(int id_core, int type)
 {
 		
 	/*mutex_lock(&trash_mutex[type]);*/
-	void* chunk = g_trash_stack_pop(&trash[id_core][type]);
+	void* chunk = trash_stack_pop(&trash[id_core][type]);
 	/*mutex_unlock(&trash_mutex[type]);*/
 	if(chunk == NULL)
 	{
 		switch(type)
 		{
 			case ALLOCATOR_THREAD:
-				chunk = malloc(sizeof(thread_u));
+				chunk = my_malloc(sizeof(thread_u));
 			break;
 			case ALLOCATOR_STACK:
-				chunk = malloc(SIZE_STACK);
+				chunk = my_malloc(SIZE_STACK);
 			break;
 		}
 	}
@@ -68,7 +72,7 @@ void* allocator_malloc(int id_core, int type)
 void allocator_free(int id_core, int type, void* data)
 {
 	/*mutex_lock(&trash_mutex[type]);*/
-	g_trash_stack_push(&trash[id_core][type], data);
+	trash_stack_push(&trash[id_core][type], data);
 	/*mutex_unlock(&trash_mutex[type]);*/
 }
 

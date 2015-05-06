@@ -11,7 +11,6 @@
 #include <valgrind/valgrind.h>
 #include <errno.h>
 #include <sys/mman.h>
-#include <glib.h>
 #include <assert.h>
 #include "global.h"
 #include "meerkat.h"
@@ -45,9 +44,6 @@ int number_of_core = 1;
 
 //Gestionnaire des signaux envoyé par l'horloge. Se contente ensuite d'appeler thread_schedul
 void thread_handler(int sig);
-
-//Le scheduler qui se charge de la tambouille pour changer et detruire les threads
-void thread_schedul(void);
 
 //Replace tout les threads attendant le thread en argument dans la file d'exécution
 void put_back_joining_thread_of(volatile thread_u * thread);
@@ -128,7 +124,9 @@ int thread_init(void)
 	current_thread->stack = malloc(SIZE_STACK);
 	LIST_INIT(runqueue, current_thread);
 	//Enregistre la pile dans valgrind
+	#ifdef DEBUG
 	current_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(current_thread->ctx.uc_stack.ss_sp, current_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
+	#endif
 	
 	//Initialise les thread pthread (vue comme des cœurs par la suite pour des notions de sémantique)
 	for(i = 0; i < number_of_core; ++i)
@@ -193,7 +191,24 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	return 0;
 }
 
-void thread_schedul(void)
+void thread_handler(int sig)
+{
+	int i;
+	printf("Alarm\n");
+
+	//TODO ré-armer le signal (mais pas sûr)
+	//If we are the first core, we are the only one to receive this signal so warn the others
+	if(id_core == 0)
+		for(i = 1; i < number_of_core; ++i)
+			pthread_kill(core[i].thread, SIGALRM);
+
+	//If the current core doesn't execute something, it's sleeping, so it already is in thread_schedul
+	//TODO change that by an attribut
+	if(CURRENT_THREAD != NULL)
+		thread_yield();
+}
+
+int thread_yield(void)
 {
 	IGNORE_SIGNAL(SIGALRM);
 
@@ -229,29 +244,6 @@ void thread_schedul(void)
 	UNIGNORE_SIGNAL(SIGALRM);
 }
 
-void thread_handler(int sig)
-{
-	int i;
-	printf("Alarm\n");
-
-	//TODO ré-armer le signal (mais pas sûr)
-	//If we are the first core, we are the only one to receive this signal so warn the others
-	if(id_core == 0)
-		for(i = 1; i < number_of_core; ++i)
-			pthread_kill(core[i].thread, SIGALRM);
-
-	//If the current core doesn't execute something, it's sleeping, so it already is in thread_schedul
-	//TODO change that by an attribut
-	if(CURRENT_THREAD != NULL)
-		thread_schedul();
-}
-
-int thread_yield(void)
-{
-	//XXX probably change that by a macro ...
-	thread_schedul();
-}
-
 int thread_join(volatile thread_t thread, void **retval)
 {
 	//If trying to join itself, stop it
@@ -275,7 +267,7 @@ int thread_join(volatile thread_t thread, void **retval)
 		CURRENT_THREAD->state = GOING_TO_JOIN;
 
 		//switch of process
-		thread_schedul();
+		thread_yield();
 	}
 
 	//We are back, just check the return value of thread and go back to work
@@ -314,7 +306,7 @@ void thread_exit(void *retval)
 		exit(0);
 	}
 	//Or switch to an other thread
-	thread_schedul();
+	thread_yield();
 }
 
 void put_back_joining_thread_of(volatile thread_u * thread)
@@ -449,7 +441,9 @@ void do_maintenance(void)
 	if(CURRENT_CORE.previous->state == FINISHED)
 	{
 		FPRINTF("Free stack of %d on core %d\n", CURRENT_CORE.previous->id, id_core);
+		#ifdef DEBUG
 		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
+		#endif
 		//Free the stack
 		allocator_free(id_core, ALLOCATOR_STACK, CURRENT_CORE.previous->stack);
 		//And "wait" for a joiner

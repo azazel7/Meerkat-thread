@@ -2,10 +2,6 @@ project (Meerkat)
 
 cmake_minimum_required(VERSION 2.8)
 
-#Pour glib mais pas vraiment portable
-include_directories(/usr/include/glib-2.0)
-include_directories(/usr/lib/glib-2.0/include)
-
 #Flag pour la compilation
 set(CMAKE_C_FLAGS "-Wall")
 
@@ -38,7 +34,7 @@ link_directories(${CMAKE_CURRENT_SOURCE_DIR}/build)
 #Librairie utilisé pour notre bibli
 add_library(meerkat SHARED ${Plankton_SOURCES})
 #Link pthread avec meerkat
-target_link_libraries(meerkat pthread glib-2.0)
+target_link_libraries(meerkat pthread)
 
 #Produit tous les exemples
 foreach(exempleFile ${exemple_source})

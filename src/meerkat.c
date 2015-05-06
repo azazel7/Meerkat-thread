@@ -147,7 +147,7 @@ int thread_init(void)
 int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *arg)
 {
 	//Alloue l'espace pour le thread
-	thread_u *new_thread = (thread_u *) allocator_malloc(ALLOCATOR_THREAD);
+	thread_u *new_thread = (thread_u *) allocator_malloc(id_core, ALLOCATOR_THREAD);
 	if(new_thread == NULL)
 		return -1;
 
@@ -156,7 +156,7 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 		return (free(new_thread), -1);
 
 	//Définie le contexte ctx (où est la pile et sa taille)
-	new_thread->stack = allocator_malloc(ALLOCATOR_STACK);
+	new_thread->stack = allocator_malloc(id_core, ALLOCATOR_STACK);
 	new_thread->ctx.uc_stack.ss_sp = new_thread->stack;
 	new_thread->ctx.uc_stack.ss_size = SIZE_STACK;
 
@@ -282,7 +282,7 @@ int thread_join(volatile thread_t thread, void **retval)
 	if(retval != NULL)
 		*retval = ((thread_u*)thread)->return_value;
 	//From now the thread we are joining is dead and its stack has been freed so we free the structure
-	allocator_free(ALLOCATOR_THREAD, thread);
+	allocator_free(id_core, ALLOCATOR_THREAD, thread);
 	return 0;
 }
 
@@ -451,7 +451,7 @@ void do_maintenance(void)
 		FPRINTF("Free stack of %d on core %d\n", CURRENT_CORE.previous->id, id_core);
 		VALGRIND_STACK_DEREGISTER(CURRENT_CORE.previous->valgrind_stackid);
 		//Free the stack
-		allocator_free(ALLOCATOR_STACK, CURRENT_CORE.previous->stack);
+		allocator_free(id_core, ALLOCATOR_STACK, CURRENT_CORE.previous->stack);
 		//And "wait" for a joiner
 		CURRENT_CORE.previous->state = ZOMBI;
 	}

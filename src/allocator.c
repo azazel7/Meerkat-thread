@@ -6,32 +6,51 @@
 #include "list.h"
 
 #define COUNT_DIFFERENT_BLOCK 2
-static GTrashStack* trash[COUNT_DIFFERENT_BLOCK] = {NULL};
-static mutex_t trash_mutex[COUNT_DIFFERENT_BLOCK];
+static GTrashStack*** trash = NULL;
+static mutex_t** trash_mutex = NULL;
 extern int number_of_core;
 
 void allocator_init(void)
 {
 	int i;
-	for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)
-		mutex_init(&trash_mutex[i]);
+	trash = malloc(sizeof(GTrashStack**)*number_of_core);
+	for(i = 0; i < number_of_core; ++i)
+	{
+		trash[i] = malloc(sizeof(GTrashStack*)*COUNT_DIFFERENT_BLOCK);
+		int j;
+		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
+		{
+			trash[i][j] = NULL;
+		}
+	}
+	/*for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)*/
+		/*mutex_init(&trash_mutex[i]);*/
 }
 __attribute__((destructor))
 void allocator_destroy(void)
 {
 	int i;
-	for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)
-		mutex_destroy(&trash_mutex[i]);
-	for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)
-		while(trash[i] != NULL)
-			free(g_trash_stack_pop(&trash[i]));
+	void* tmp;
+	/*for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)*/
+		/*mutex_destroy(&trash_mutex[i]);*/
+	for(i = 0; i < number_of_core; ++i)
+	{
+		int j;
+		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)
+		{
+			while((tmp = g_trash_stack_pop(&trash[i][j])) != NULL)
+				free(tmp);
+		}
+		free(trash[i]);
+	}
+	free(trash);
 }
-void* allocator_malloc(int type)
+void* allocator_malloc(int id_core, int type)
 {
 		
-	mutex_lock(&trash_mutex[type]);
-	void* chunk = g_trash_stack_pop(&trash[type]);
-	mutex_unlock(&trash_mutex[type]);
+	/*mutex_lock(&trash_mutex[type]);*/
+	void* chunk = g_trash_stack_pop(&trash[id_core][type]);
+	/*mutex_unlock(&trash_mutex[type]);*/
 	if(chunk == NULL)
 	{
 		switch(type)
@@ -46,10 +65,10 @@ void* allocator_malloc(int type)
 	}
 	return chunk;
 }
-void allocator_free(int type, void* data)
+void allocator_free(int id_core, int type, void* data)
 {
-	mutex_lock(&trash_mutex[type]);
-	g_trash_stack_push(&trash[type], data);
-	mutex_unlock(&trash_mutex[type]);
+	/*mutex_lock(&trash_mutex[type]);*/
+	g_trash_stack_push(&trash[id_core][type], data);
+	/*mutex_unlock(&trash_mutex[type]);*/
 }
 

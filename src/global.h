@@ -53,5 +53,3 @@ typedef struct core_information
 	LIST_HEAD(thread_u, runqueue);
 	char* stack_to_free;
 } core_information;
-
-int get_idx_core(void);

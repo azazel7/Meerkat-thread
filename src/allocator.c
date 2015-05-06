@@ -5,7 +5,7 @@
 #include "mutex.h"
 #include "list.h"
 
-#define COUNT_DIFFERENT_BLOCK 4
+#define COUNT_DIFFERENT_BLOCK 2
 static GTrashStack* trash[COUNT_DIFFERENT_BLOCK] = {NULL};
 static mutex_t trash_mutex[COUNT_DIFFERENT_BLOCK];
 extern int number_of_core;

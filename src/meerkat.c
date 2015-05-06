@@ -46,10 +46,10 @@ int number_of_core = 1;
 void thread_handler(int sig);
 
 //Le scheduler qui se charge de la tambouille pour changer et detruire les threads
-void thread_schedul(void);
+void thread_schedul(volatile int);
 
 //Replace tout les threads attendant le thread en argument dans la file d'exécution
-void put_back_joining_thread_of(volatile thread_u * thread);
+void put_back_joining_thread_of(volatile thread_u * thread, int id_core);
 
 //Si la fonction du thread fait un return, thread_catch_return récupérera la valeur et la mettra dans return_table pour que les thread qui join puissent l'avoir
 void thread_catch_return(void *(*function) (void *), void *arg);
@@ -195,11 +195,10 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	return 0;
 }
 
-void thread_schedul()
+//It's volatile to avoid optimization (id_core is compute again later)
+void thread_schedul(volatile int id_core)
 {
 	IGNORE_SIGNAL(SIGALRM);
-	//It's volatile to avoid optimization (id_core is compute again later)
-	volatile int id_core = get_idx_core();
 
 	//previous can be NULL when each pthread thread call thread_schedul for the first time
 	CURRENT_CORE.previous = CURRENT_THREAD;
@@ -207,7 +206,7 @@ void thread_schedul()
 
 	//If the current thread is not finish, we push him back into the runqueu
 	if(CURRENT_CORE.previous != NULL && CURRENT_CORE.previous->state == FINISHED)
-		put_back_joining_thread_of(CURRENT_CORE.previous);
+		put_back_joining_thread_of(CURRENT_CORE.previous, id_core);
 
 	//Try to get a thread from the runqueue (return NULL else)
 	CURRENT_THREAD = try_get_thread_from_runqueue(id_core);
@@ -250,13 +249,13 @@ void thread_handler(int sig)
 	//If the current core doesn't execute something, it's sleeping, so it already is in thread_schedul
 	//TODO change that by an attribut
 	if(CURRENT_THREAD != NULL)
-		thread_schedul();
+		thread_schedul(id_core);
 }
 
 int thread_yield(void)
 {
 	//XXX probably change that by a macro ...
-	thread_schedul();
+	thread_schedul(get_idx_core());
 }
 
 int thread_join(volatile thread_t thread, void **retval)
@@ -283,7 +282,7 @@ int thread_join(volatile thread_t thread, void **retval)
 		CURRENT_THREAD->state = GOING_TO_JOIN;
 
 		//switch of process
-		thread_schedul();
+		thread_schedul(id_core);
 	}
 
 	//We are back, just check the return value of thread and go back to work
@@ -330,10 +329,10 @@ void thread_exit(void *retval)
 		exit(0);
 	}
 	//Or switch to an other thread
-	thread_schedul();
+	thread_schedul(id_core);
 }
 
-void put_back_joining_thread_of(volatile thread_u * thread)
+void put_back_joining_thread_of(volatile thread_u * thread, int id_core)
 {
 	FPRINTF("Put back joiner of %d on core %d\n", thread->id, get_idx_core());
 	//Try to put 2 into join_sync
@@ -349,7 +348,7 @@ void put_back_joining_thread_of(volatile thread_u * thread)
 		//Change the state
 		thread->joiner->state = OTHER;
 		//Put it at the beginning of the runqueue and let's die in peace
-		add_begin_thread_to_runqueue(get_idx_core(), (thread_u*)thread->joiner, HIGH_PRIORITY);
+		add_begin_thread_to_runqueue(id_core, (thread_u*)thread->joiner, HIGH_PRIORITY);
 	}
 	//Else, the joiner came first so it's waiting for us. Don't put it into the runqueue and die as quick as you can
 }

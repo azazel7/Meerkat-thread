@@ -22,6 +22,9 @@ void allocator_destroy(void)
 	int i;
 	for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)
 		mutex_destroy(&trash_mutex[i]);
+	for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)
+		while(trash[i] != NULL)
+			free(g_trash_stack_pop(&trash[i]));
 }
 void* allocator_malloc(int type)
 {

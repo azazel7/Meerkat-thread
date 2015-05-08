@@ -17,7 +17,7 @@ extern thread_t thread_self(void);
 /* creer un nouveau thread qui va exécuter la fonction func avec l'argument funcarg.
  * renvoie 0 en cas de succès, -1 en cas d'erreur.
  */
-extern int thread_create(thread_t *newthread, void *(*func)(void *), void *funcarg);
+extern int thread_create(thread_t * const newthread, void *(*start_routine) (void *), void *arg);
 
 /* passer la main à un autre thread.
  */
@@ -27,7 +27,7 @@ extern int thread_yield(void);
  * la valeur renvoyée par le thread est placée dans *retval.
  * si retval est NULL, la valeur de retour est ignorée.
  */
-extern int thread_join(thread_t thread, void **retval);
+extern int thread_join(volatile thread_t thread, void ** const retval);
 
 /* terminer le thread courant en renvoyant la valeur de retour retval.
  * cette fonction ne retourne jamais.

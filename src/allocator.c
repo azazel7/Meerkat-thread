@@ -7,7 +7,7 @@
 
 #define COUNT_DIFFERENT_BLOCK 2
 static trash_stack_t*** trash = NULL;
-static mutex_t** trash_mutex = NULL;
+/*static mutex_t** trash_mutex = NULL;*/
 extern int number_of_core;
 
 void allocator_init(void)
@@ -45,13 +45,8 @@ void allocator_destroy(void)
 	}
 	free(trash);
 }
-void* my_malloc(int size)
+void* allocator_malloc(int const id_core, int const type)
 {
-	return malloc(size);
-}
-void* allocator_malloc(int id_core, int type)
-{
-		
 	/*mutex_lock(&trash_mutex[type]);*/
 	void* chunk = trash_stack_pop(&trash[id_core][type]);
 	/*mutex_unlock(&trash_mutex[type]);*/
@@ -60,16 +55,16 @@ void* allocator_malloc(int id_core, int type)
 		switch(type)
 		{
 			case ALLOCATOR_THREAD:
-				chunk = my_malloc(sizeof(thread_u));
+				chunk = malloc(sizeof(thread_u));
 			break;
 			case ALLOCATOR_STACK:
-				chunk = my_malloc(SIZE_STACK);
+				chunk = malloc(SIZE_STACK);
 			break;
 		}
 	}
 	return chunk;
 }
-void allocator_free(int id_core, int type, void* data)
+void allocator_free(int const id_core, int const type, void* const data)
 {
 	/*mutex_lock(&trash_mutex[type]);*/
 	trash_stack_push(&trash[id_core][type], data);

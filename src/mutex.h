@@ -5,9 +5,9 @@
 typedef bool* mutex_t;
 
 bool mutex_init(mutex_t* mutex);
-bool mutex_lock(mutex_t* mutex);
-bool mutex_trylock(mutex_t * mutex);
-bool mutex_unlock(mutex_t* mutex);
+bool mutex_lock(mutex_t * const mutex);
+bool mutex_trylock(mutex_t * const mutex);
+bool mutex_unlock(mutex_t* const mutex);
 void mutex_destroy(mutex_t* mutex);
 
 

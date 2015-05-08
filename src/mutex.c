@@ -12,7 +12,7 @@ bool mutex_init(mutex_t * mutex)
 	return true;
 }
 
-bool mutex_lock(mutex_t * mutex)
+bool mutex_lock(mutex_t * const mutex)
 {
 
 	//__sync_lock_test_and_set returns the previous value of mutex, so it should be false if the mutex is not set yet
@@ -35,7 +35,7 @@ bool mutex_lock(mutex_t * mutex)
 	return true;
 }
 
-bool mutex_trylock(mutex_t * mutex)
+bool mutex_trylock(mutex_t * const mutex)
 {
 	//__sync_lock_test_and_set returns the previous value of mutex, so it should be false if the mutex is not set yet
 	if(__sync_lock_test_and_set(*mutex, true))
@@ -43,7 +43,7 @@ bool mutex_trylock(mutex_t * mutex)
 	return true;
 }
 
-bool mutex_unlock(mutex_t * mutex)
+bool mutex_unlock(mutex_t * const mutex)
 {
 
 	//The mutex isn't locked

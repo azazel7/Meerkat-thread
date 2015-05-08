@@ -4,7 +4,7 @@
 #include "list.h"
 
 //The size of the stack of each thread. Work well with 16384. Error if less or equal than 8192
-#define SIZE_STACK 16384
+#define SIZE_STACK 8192
 
 #define CURRENT_CORE core[id_core]
 #define CURRENT_THREAD core[id_core].current

@@ -36,17 +36,11 @@ static int global_id = 0;
 core_information *core = NULL;
 int number_of_core = 1;
 
-//TODO add in core_information something to say it's already in thread change (for signal)
-
-/*
- * Fonctions internes
- */
-
 //Gestionnaire des signaux envoyé par l'horloge. Se contente ensuite d'appeler thread_schedul
 void thread_handler(int sig);
 
 //Replace tout les threads attendant le thread en argument dans la file d'exécution
-void put_back_joining_thread_of(volatile thread_u * thread);
+static inline void put_back_joining_thread_of(volatile thread_u * thread);
 
 //Si la fonction du thread fait un return, thread_catch_return récupérera la valeur et la mettra dans return_table pour que les thread qui join puissent l'avoir
 void thread_catch_return(void *(*function) (void *), void *arg);
@@ -73,11 +67,8 @@ int thread_init(void)
 	int i;
 	FPRINTF("First\n");
 	//Compte le nombre de cœurs disponibles
-	number_of_core = 4;	//sysconf(_SC_NPROCESSORS_ONLN);
+	number_of_core = sysconf(_SC_NPROCESSORS_ONLN);
 
-	//Ajoute les gestionnaire de signaux
-	signal(SIGALRM, thread_handler);
-	signal(SIGVTALRM, thread_handler);
 	core = malloc(sizeof(core_information) * number_of_core);
 	if(core == NULL)
 		return -1;
@@ -132,22 +123,19 @@ int thread_init(void)
 	for(i = 0; i < number_of_core; ++i)
 		thread_init_i(i, current_thread);
 
-	//Activer l'alarm et active l'interval (si interval il y a)
-	/*
-	 * if(setitimer(ITIMER_REAL, &timeslice, NULL) < 0)
-	 */
-	/*
-	 * perror("setitimer");
-	 */
 	return 0;
 }
 
-int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *arg)
+int thread_create(thread_t * const newthread, void *(*start_routine) (void *), void *arg)
 {
 	//Alloue l'espace pour le thread
 	thread_u *new_thread = (thread_u *) allocator_malloc(id_core, ALLOCATOR_THREAD);
 	if(new_thread == NULL)
 		return -1;
+
+	if(newthread != NULL)
+		//Si l'utilisateur ne veut pas se souvenir du thread, on ne lui dit pas
+		*newthread = new_thread;
 
 	//Créer le contexte pour le nouveau thread
 	if(getcontext(&(new_thread->ctx)) < 0)
@@ -169,18 +157,12 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	LIST_INIT(runqueue, new_thread);
 
 	//Enregistre la pile
+	#ifdef DEBUG
 	new_thread->valgrind_stackid = VALGRIND_STACK_REGISTER(new_thread->ctx.uc_stack.ss_sp, new_thread->ctx.uc_stack.ss_sp + SIZE_STACK);
+	#endif
 
 	//créer le contexte
 	makecontext(&(new_thread->ctx), (void (*)())thread_catch_return, 2, start_routine, arg);
-
-	//On met l'id avec global_id après un eventuel appel à thread_init. (Ce qui garanti d'avoir toujours la même répartion des id
-	new_thread->id = __sync_fetch_and_add(&global_id, 1);
-
-	//Attend d'avoir initialiser l'id avant de le donner
-	if(newthread != NULL)
-		//Si l'utilisateur ne veut pas se souvenir du thread, on ne lui dit pas
-		*newthread = new_thread;
 
 	//Ajoute un thread au total
 	__sync_add_and_fetch(&thread_count, 1);
@@ -191,27 +173,8 @@ int thread_create(thread_t * newthread, void *(*start_routine) (void *), void *a
 	return 0;
 }
 
-void thread_handler(int sig)
-{
-	int i;
-	printf("Alarm\n");
-
-	//TODO ré-armer le signal (mais pas sûr)
-	//If we are the first core, we are the only one to receive this signal so warn the others
-	if(id_core == 0)
-		for(i = 1; i < number_of_core; ++i)
-			pthread_kill(core[i].thread, SIGALRM);
-
-	//If the current core doesn't execute something, it's sleeping, so it already is in thread_schedul
-	//TODO change that by an attribut
-	if(CURRENT_THREAD != NULL)
-		thread_yield();
-}
-
 int thread_yield(void)
 {
-	IGNORE_SIGNAL(SIGALRM);
-
 	//previous can be NULL when each pthread thread call thread_schedul for the first time
 	CURRENT_CORE.previous = CURRENT_THREAD;
 	FPRINTF("Pause %d on core %d\n", CURRENT_CORE.previous->id, id_core);
@@ -241,10 +204,9 @@ int thread_yield(void)
 		do_maintenance();
 
 	FPRINTF("Start %d on core %d\n", CURRENT_THREAD->id, id_core);
-	UNIGNORE_SIGNAL(SIGALRM);
 }
 
-int thread_join(volatile thread_t thread, void **retval)
+int thread_join(volatile thread_t thread, void ** const retval)
 {
 	//If trying to join itself, stop it
 	if(CURRENT_THREAD == thread)
@@ -309,21 +271,25 @@ void thread_exit(void *retval)
 	thread_yield();
 }
 
-void put_back_joining_thread_of(volatile thread_u * thread)
+static inline void put_back_joining_thread_of(volatile thread_u * thread)
 {
 	FPRINTF("Put back joiner of %d on core %d\n", thread->id, id_core);
+	
 	//Try to put 2 into join_sync
 	char old = __sync_val_compare_and_swap(&thread->join_sync, 0, 2);
+
 	//if join_sync equal 1 instead, that mean a joiner is coming
 	if(old == 1)
 	{
 		FPRINTF("Wait for joiner of %d on core %d\n", thread->id, id_core);
+
 		//Wait till the joiner put himself into thread->joiner
-		while(thread->joiner == NULL);		
 		//Wait till the joiner beging JOINING so it will be safe to execute it again
-		while(thread->joiner->state != JOINING);		
+		while(thread->joiner == NULL || thread->joiner->state != JOINING);		
+
 		//Change the state
 		thread->joiner->state = OTHER;
+
 		//Put it at the beginning of the runqueue and let's die in peace
 		add_begin_thread_to_runqueue(id_core, (thread_u*)thread->joiner, HIGH_PRIORITY);
 	}
@@ -337,11 +303,6 @@ void thread_catch_return(void *(*function) (void *), void *arg)
 		do_maintenance();
 	
 	thread_exit(function(arg));
-}
-
-void empty_handler(int s)
-{
-	printf("Call in empty handler core %d\n", id_core);
 }
 
 void thread_change(int id)
@@ -370,7 +331,6 @@ void thread_change(int id)
 
 void thread_init_i(int i, thread_u * current_thread)
 {
-
 	//Initialise les variable du cœur
 	core[i].previous = NULL;
 	LIST_HEAD_INIT(core[i].runqueue);
@@ -449,12 +409,8 @@ void do_maintenance(void)
 		//And "wait" for a joiner
 		CURRENT_CORE.previous->state = ZOMBI;
 	}
-	else if(CURRENT_CORE.previous->state == GOING_TO_JOIN)	//FIXME don't know why, but if you use id_joining, it doesn't work.
-	{
+	else if(CURRENT_CORE.previous->state == GOING_TO_JOIN)
 		CURRENT_CORE.previous->state = JOINING;
-	}
 	else
-	{
-		add_thread_to_runqueue(id_core, CURRENT_CORE.previous);
-	}
+		add_begin_thread_to_runqueue(id_core, CURRENT_CORE.previous, MIDDLE_PRIORITY);
 }

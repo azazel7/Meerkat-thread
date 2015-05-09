@@ -13,7 +13,6 @@ extern LIST_HEAD(thread_u, runqueue);
 extern mutex_t runqueue_mutex;
 extern sem_t *semaphore_runqueue;
 extern core_information *core;
-extern int number_of_core;
 unsigned int runqueue_size = 0;
 
 thread_u *get_thread_from_runqueue(int const id_core)
@@ -28,7 +27,7 @@ thread_u *get_thread_from_runqueue(int const id_core)
 		mutex_lock(&runqueue_mutex);
 		
 		//Compute how many thread we are going to take
-		int to_get = (runqueue_size / number_of_core);	
+		int to_get = (runqueue_size / NUMBER_OF_CORE);	
 		if(to_get == 0)
 			to_get = 1;
 		if(to_get > MAX_SIZE_LOCAL_RUNQUEUE) //Don't take too many
@@ -69,7 +68,7 @@ thread_u* try_get_thread_from_runqueue(int const id_core)
 		mutex_lock(&runqueue_mutex);
 		
 		//Compute how many thread we are going to get
-		int to_get = (runqueue_size / number_of_core);	
+		int to_get = (runqueue_size / NUMBER_OF_CORE);	
 		if(to_get == 0)
 			to_get = 1;
 		if(to_get > MAX_SIZE_LOCAL_RUNQUEUE) //Don't take too many
@@ -99,7 +98,7 @@ thread_u* try_get_thread_from_runqueue(int const id_core)
 void add_begin_thread_to_runqueue(int const id_core, thread_u * const thread, int const priority)
 {
 	//If the thread doesn't have to be executed right now and the global runqueue is empty, we will wait to put it into the global runqueue with a mutex
-	if(priority == MIDDLE_PRIORITY && runqueue_size < MAX_SIZE_LOCAL_RUNQUEUE/number_of_core)
+	if(priority == MIDDLE_PRIORITY && runqueue_size < MAX_SIZE_LOCAL_RUNQUEUE/NUMBER_OF_CORE)
 		if(mutex_trylock(&runqueue_mutex))
 		{
 			LIST_PREPEND(runqueue, runqueue, thread);

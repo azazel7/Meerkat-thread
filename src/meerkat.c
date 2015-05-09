@@ -34,7 +34,6 @@ static struct itimerval timeslice;
 static int global_id = 0;
 
 core_information *core = NULL;
-int number_of_core = 1;
 
 //Gestionnaire des signaux envoyé par l'horloge. Se contente ensuite d'appeler thread_schedul
 void thread_handler(int sig);
@@ -66,10 +65,8 @@ int thread_init(void)
 {
 	int i;
 	FPRINTF("First\n");
-	//Compte le nombre de cœurs disponibles
-	number_of_core = sysconf(_SC_NPROCESSORS_ONLN);
 
-	core = malloc(sizeof(core_information) * number_of_core);
+	core = malloc(sizeof(core_information) * NUMBER_OF_CORE);
 	if(core == NULL)
 		return -1;
 
@@ -120,7 +117,7 @@ int thread_init(void)
 	#endif
 	
 	//Initialise les thread pthread (vue comme des cœurs par la suite pour des notions de sémantique)
-	for(i = 0; i < number_of_core; ++i)
+	for(i = 0; i < NUMBER_OF_CORE; ++i)
 		thread_init_i(i, current_thread);
 
 	return 0;
@@ -376,7 +373,7 @@ static void ending_process()
 	int i;
 	thread_u* tmp = CURRENT_THREAD;
 	CURRENT_THREAD = NULL;
-	for(i = 0; i < number_of_core; ++i)
+	for(i = 0; i < NUMBER_OF_CORE; ++i)
 	{
 		while(core[i].previous != NULL && core[i].current != NULL);
 	}
@@ -391,7 +388,7 @@ static void ending_process()
 void free_ressources(void)
 {
 	int i;
-	for(i = 0; i < number_of_core; ++i)
+	for(i = 0; i < NUMBER_OF_CORE; ++i)
 		VALGRIND_STACK_DEREGISTER(core[i].valgrind_stackid);
 	FPRINTF("Finished by core %d\n", id_core);
 }

@@ -8,13 +8,12 @@
 #define COUNT_DIFFERENT_BLOCK 2
 static trash_stack_t*** trash = NULL;
 /*static mutex_t** trash_mutex = NULL;*/
-extern int number_of_core;
 
 void allocator_init(void)
 {
 	int i;
-	trash = malloc(sizeof(trash_stack_t**)*number_of_core);
-	for(i = 0; i < number_of_core; ++i)
+	trash = malloc(sizeof(trash_stack_t**)*NUMBER_OF_CORE);
+	for(i = 0; i < NUMBER_OF_CORE; ++i)
 	{
 		trash[i] = malloc(sizeof(trash_stack_t*)*COUNT_DIFFERENT_BLOCK);
 		int j;
@@ -33,7 +32,7 @@ void allocator_destroy(void)
 	void* tmp;
 	/*for(i = 0; i < COUNT_DIFFERENT_BLOCK; ++i)*/
 		/*mutex_destroy(&trash_mutex[i]);*/
-	for(i = 0; i < number_of_core; ++i)
+	for(i = 0; i < NUMBER_OF_CORE; ++i)
 	{
 		int j;
 		for(j = 0; j < COUNT_DIFFERENT_BLOCK; ++j)

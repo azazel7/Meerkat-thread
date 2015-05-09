@@ -1,9 +1,18 @@
 project (Meerkat)
 
+set(PROCESSOR_COUNT 0)
+
+set(cpuinfo_file "/proc/cpuinfo")
+if(EXISTS "${cpuinfo_file}")
+	file(STRINGS "${cpuinfo_file}" procs REGEX "^processor.: [0-9]+$")
+	list(LENGTH procs PROCESSOR_COUNT)
+endif()
+
+message("Compile for ${PROCESSOR_COUNT} core(s)")
 cmake_minimum_required(VERSION 2.8)
 
 #Flag pour la compilation
-set(CMAKE_C_FLAGS "-Wall")
+set(CMAKE_C_FLAGS "-Wall -DNUMBER_OF_CORE=${PROCESSOR_COUNT}")
 
 set(SRC_DIR "src")
 set(TST_DIR "tst")

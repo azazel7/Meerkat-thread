@@ -15,35 +15,38 @@ extern sem_t *semaphore_runqueue;
 extern core_information *core;
 unsigned int runqueue_size = 0;
 
+static void fill_local_runqueue(int const id_core)
+{
+		int i = 0;
+		//Compute how many thread we are going to take
+		int to_get = (runqueue_size / NUMBER_OF_CORE);	
+		if(to_get > MAX_SIZE_LOCAL_RUNQUEUE) //Don't take too many
+			to_get = MAX_SIZE_LOCAL_RUNQUEUE;
+		//Get
+		for(; i < to_get; ++i)
+			if(sem_trywait(semaphore_runqueue) != 0)
+				break;
+		to_get = i + 1;	
+		runqueue_size -= to_get;
+		
+		thread_u* tmp;
+		assert(runqueue);
+		LIST_GET_IEME(runqueue, runqueue, tmp, to_get);
+		LIST_CUT_AFTER_AND_PUT_IN_FRONT(runqueue, runqueue, tmp, CURRENT_CORE.runqueue);
+		assert(CURRENT_CORE.runqueue);
+}
+
 thread_u *get_thread_from_runqueue(int const id_core)
 {
 	//If nothing is in our queue
 	if(CURRENT_CORE.runqueue == NULL)
 	{
-		int i = 0;
 		//Wait for something in the global runqueue
 		sem_wait(semaphore_runqueue);
 		//Lock the runqueue so even if there is many thread in the runqueue, only one will modify the runqueue
 		mutex_lock(&runqueue_mutex);
 		
-		//Compute how many thread we are going to take
-		int to_get = (runqueue_size / NUMBER_OF_CORE);	
-		if(to_get == 0)
-			to_get = 1;
-		if(to_get > MAX_SIZE_LOCAL_RUNQUEUE) //Don't take too many
-			to_get = MAX_SIZE_LOCAL_RUNQUEUE;
-		
-		//Get them
-		for(; i < to_get; ++i)
-		{
-			thread_u* tmp = runqueue;
-			LIST_REMOVE(runqueue, runqueue, runqueue);
-			LIST_APPEND(runqueue, CURRENT_CORE.runqueue, tmp);
-			if(i != 0) //Already done the sem_wait for the first
-				sem_wait(semaphore_runqueue);
-			--runqueue_size; //No need of atomic because we have a mutex
-		}
-
+		fill_local_runqueue(id_core);
 		//Release the lock
 		mutex_unlock(&runqueue_mutex);
 	}
@@ -59,31 +62,14 @@ thread_u* try_get_thread_from_runqueue(int const id_core)
 	//If nothing is in our queue
 	if(CURRENT_CORE.runqueue == NULL)
 	{
-		int i = 0;
-		
 		if(sem_trywait(semaphore_runqueue) != 0)
 			return NULL;
 		
+		assert(runqueue);
 		//Lock the runqueue so even if there is many thread in the runqueue, only one will modify the runqueue
 		mutex_lock(&runqueue_mutex);
 		
-		//Compute how many thread we are going to get
-		int to_get = (runqueue_size / NUMBER_OF_CORE);	
-		if(to_get == 0)
-			to_get = 1;
-		if(to_get > MAX_SIZE_LOCAL_RUNQUEUE) //Don't take too many
-			to_get = MAX_SIZE_LOCAL_RUNQUEUE;
-
-		//Get them
-		for(; i < to_get; ++i)
-		{
-			thread_u* tmp = runqueue;
-			LIST_REMOVE(runqueue, runqueue, runqueue);
-			LIST_APPEND(runqueue, CURRENT_CORE.runqueue, tmp);
-			if(i != 0) //Already done the sem_wait for the first
-				sem_wait(semaphore_runqueue);
-			--runqueue_size; //No need of atomic because we have a mutex
-		}
+		fill_local_runqueue(id_core);
 		
 		//Release the lock
 		mutex_unlock(&runqueue_mutex);

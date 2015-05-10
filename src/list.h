@@ -159,22 +159,23 @@
 
 #define LIST_GET_IEME(name, head, item, i) 																\
 		do {																							\
-			typeof((i)) _i = 0;																			\
+			typeof((i)) _i = 1;																			\
 			if((head)) 																					\
-				for((item) = (head); _i < (i) && (item)->name##_next; (item) = (item)->name##_next, ++_i); 	\
+				for((item) = (head); _i < (i) ; (item) = (item)->name##_next, ++_i); 	\
 			else 																						\
 				(item) = NULL;																			\
 		} while(false)
 
 #define LIST_CUT_AFTER_AND_PUT_IN_FRONT(name, head, item, front) \
 		do { 							 				\
+			typeof(*(head)) **_head = &(head), **_front = &(front);\
 			if((item)->name##_next)						\
 				(item)->name##_next->name##_prev = NULL;\
 			typeof(item) tmp_head = (item)->name##_next;\
 			(item)->name##_next = (front);				\
 			if((front))									\
 				(front)->name##_prev = (item);			\
-			(front) = (head);							\
-			(head) = tmp_head;							\
+			*_front = (head);							\
+			*_head = tmp_head;							\
 		} while(false)
 		

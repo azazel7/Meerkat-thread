@@ -21,6 +21,7 @@ static void * thfunc(void *dummy __attribute__((unused)))
 {
   void *res;
   int err;
+	(void)err;
 
   err = thread_join(thmain, &res);
   assert(!err);
@@ -33,6 +34,7 @@ int main()
 {
   thread_t th;
   int err;
+	(void)err;
 
   thmain = thread_self();
 

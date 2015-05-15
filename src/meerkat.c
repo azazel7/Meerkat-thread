@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+
+#include <ucontext.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,11 +15,23 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <assert.h>
+#include <sched.h>
 #include "global.h"
 #include "meerkat.h"
 #include "runqueue.h"
 #include "mutex.h"
 #include "allocator.h"
+
+
+#define CURRENT_CORE core[id_core]
+#define CURRENT_THREAD core[id_core].current
+#define IGNORE_SIGNAL(i) signal(i, empty_handler)
+#define UNIGNORE_SIGNAL(i) signal(i, thread_handler)
+#ifdef DEBUG
+#define FPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+#else
+#define FPRINTF(fmt, ...) do{}while(0)
+#endif
 
 //La liste de tous les threads lancé.
 LIST_HEAD(thread_u, runqueue);
@@ -360,7 +375,9 @@ void thread_init_i(int i, thread_u * current_thread)
 		core[i].current = NULL;
 		
 		//Lancement du thread pthread (soit un cœur)
-		pthread_create(&(core[i].thread), NULL, (void *(*)(void *))thread_change, (void *)(long int)i);
+		clone((int (*)(void *))thread_change, core[i].stack + SIZE_STACK, 
+		      CLONE_FILES | CLONE_FS | CLONE_VM | CLONE_THREAD | CLONE_SYSVSEM | CLONE_DETACHED, 
+		      (void *)(long int)i);
 	}
 }
 

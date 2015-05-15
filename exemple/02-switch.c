@@ -18,6 +18,7 @@
 static void * thfunc(void *id)
 {
   int err, i;
+	(void)err;
   for(i=0; i<10; i++) {
     printf("%s yield vers un autre thread\n", (char*) id);
     err = thread_yield();
@@ -33,7 +34,7 @@ int main()
   thread_t th1,th2,th3;
   void *res;
   int err, i;
-
+	(void)err;
   err = thread_create(&th1, thfunc, "fils1");
   assert(!err);
   err = thread_create(&th2, thfunc, "fils2");

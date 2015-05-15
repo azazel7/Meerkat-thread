@@ -18,6 +18,7 @@ int main(int argc, char *argv[])
   thread_t thread1, thread2;
   void *retval1, *retval2;
   int err;
+	(void)err;
 
   printf("le main lance 2 threads...\n");
   err = thread_create(&thread1, threadfunc, "thread1");

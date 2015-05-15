@@ -32,6 +32,7 @@ int main(int argc, char *argv[])
   thread_t *ths;
   struct timeval tv1, tv2;
   unsigned long us;
+	(void)err;
 
   if (argc < 3) {
     printf("arguments manquants: nombre de threads, puis nombre de yield\n");

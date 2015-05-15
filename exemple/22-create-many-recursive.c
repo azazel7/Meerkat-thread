@@ -23,6 +23,7 @@ static void * thfunc(void *_nb)
     thread_t th;
     int err;
     void *res;
+	(void)err;
     err = thread_create(&th, thfunc, _nb-1);
     assert(!err);
     err = thread_join(th, &res);

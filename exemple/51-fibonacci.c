@@ -23,6 +23,7 @@ static void * fibo(void *_value)
   int err;
   void *res = NULL, *res2 = NULL;
   unsigned long value = (unsigned long) _value;
+	(void)err;
 
   /* on passe un peu la main aux autres pour eviter de faire uniquement la partie gauche de l'arbre */
   thread_yield();

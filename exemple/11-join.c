@@ -32,6 +32,7 @@ int main()
   void *res = NULL;
   struct timeval tv1, tv2;
   unsigned long us;
+	(void)err;
   gettimeofday(&tv1, NULL);
   err = thread_create(&th, thfunc, NULL);
   assert(!err);

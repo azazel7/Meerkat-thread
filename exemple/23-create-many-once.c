@@ -25,6 +25,7 @@ int main(int argc, char *argv[])
 {
   thread_t *th;
   int err, i, nb;
+	(void)err;
 
   if (argc < 2) {
     printf("argument manquant: nombre de threads\n");
